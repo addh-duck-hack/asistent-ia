@@ -1,0 +1,60 @@
+# Despliegue: docker compose up -d --build
+#
+# Convenciones tomadas de Duck-Hack.cloud:
+# - Solo la red externa `npm` (Nginx Proxy Manager); sin redes internas extra
+#   para no agotar el pool de IPs de Docker en el host.
+# - En NPM el "Forward Hostname" debe ser el alias único asistent-ia.backend
+#   (puerto 5000), nunca el nombre genérico `backend`: Compose registra la
+#   clave de servicio como alias DNS en `npm` y otro proyecto con la misma
+#   clave haría que NPM reparta peticiones entre ambos.
+# - Config en runtime vía env_file (backend/.env), no horneada en la imagen.
+name: asistent-ia
+
+services:
+  backend:
+    # Contexto = raíz del repo: el backend consume packages/schema vía
+    # workspaces. Ver backend/Dockerfile.
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: asistent-ia.backend
+    command: ["node", "dist/server.js"]
+    env_file:
+      - ./backend/.env
+    expose:
+      - "5000"
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      npm:
+        aliases:
+          - asistent-ia.backend
+
+  worker:
+    # Misma imagen que backend: procesa la cola de análisis (Agenda) y las
+    # tareas programadas (digest semanal). Va separado del API para que un
+    # análisis largo no bloquee peticiones. No necesita estar expuesto en NPM,
+    # pero se une a `npm` para tener salida a internet (Mongo, Claude API).
+    # Mismo build que backend: el segundo build sale completo del caché.
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: asistent-ia.worker
+    command: ["node", "dist/worker.js"]
+    env_file:
+      - ./backend/.env
+    environment:
+      # Solo el worker corre las tareas programadas.
+      SCHEDULER_ENABLED: "true"
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - npm
+
+networks:
+  npm:
+    external: true

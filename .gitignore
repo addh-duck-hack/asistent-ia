@@ -1,0 +1,27 @@
+# Node.js
+node_modules/
+dist/
+npm-debug.log
+
+# Logs
+logs/
+*.log
+
+# Docker
+docker-compose.override.yml
+
+# Archivos de entorno
+*.env
+.env
+
+# Xcode
+apps/mac/**/xcuserdata/
+apps/mac/**/DerivedData/
+*.xcuserstate
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Archivos de sistema
+.DS_Store

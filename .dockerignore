@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.gitignore
+.DS_Store
+npm-debug.log*
+# La app Mac no entra al build del backend.
+apps
+
+# El .env NO va en la imagen: la config se inyecta en runtime vía
+# `env_file: ./backend/.env` en docker-compose.yml (así un cambio de config
+# se aplica con `docker compose up -d`, sin --build ni secretos en las capas).
+backend/.env
+.env

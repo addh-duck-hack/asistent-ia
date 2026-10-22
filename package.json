@@ -1,0 +1,8 @@
+{
+  "name": "asistent-ia",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "packages/*"
+  ]
+}
