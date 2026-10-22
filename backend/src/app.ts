@@ -1,8 +1,10 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import mongoose from "mongoose";
+import { ZodError } from "zod";
 import { requireToken } from "./middleware/auth.js";
 import { projectsRouter } from "./routes/projects.js";
 import { peopleRouter } from "./routes/people.js";
+import { sessionsRouter } from "./routes/sessions.js";
 
 export function createApp() {
   const app = express();
@@ -20,8 +22,13 @@ export function createApp() {
   app.use("/api", requireToken);
   app.use("/api/projects", projectsRouter);
   app.use("/api/people", peopleRouter);
+  app.use("/api/sessions", sessionsRouter);
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof ZodError) {
+      res.status(400).json({ error: "invalid_body", issues: err.issues });
+      return;
+    }
     if (err instanceof mongoose.Error.ValidationError || err instanceof mongoose.Error.CastError) {
       res.status(400).json({ error: err.message });
       return;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { ProjectModel } from "../models/index.js";
+import { AnalysisModel, ProjectModel, SessionModel } from "../models/index.js";
 
 export const projectsRouter = Router();
 
@@ -34,4 +34,15 @@ projectsRouter.patch("/:id", async (req, res) => {
     return;
   }
   res.json(project);
+});
+
+// Lista de sesiones del proyecto con el resumen ejecutivo del último análisis.
+projectsRouter.get("/:id/sessions", async (req, res) => {
+  const sessions = await SessionModel.find({ projectId: req.params.id }).sort({ date: -1 }).limit(200).lean();
+  const analyses = await AnalysisModel.find({ sessionId: { $in: sessions.map((s) => s._id) } })
+    .sort({ createdAt: 1 })
+    .select({ sessionId: 1, summaryText: 1 })
+    .lean();
+  const summaries = new Map(analyses.map((a) => [String(a.sessionId), a.summaryText]));
+  res.json(sessions.map((s) => ({ ...s, summary: summaries.get(String(s._id)) ?? null })));
 });
