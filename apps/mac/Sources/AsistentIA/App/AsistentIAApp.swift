@@ -5,12 +5,6 @@ import SwiftUI
 struct AsistentIAApp: App {
     @State private var store = AppStore()
 
-    init() {
-        // Al correr como ejecutable de Swift Package no hay bundle .app; esto
-        // hace que la app aparezca en el Dock y reciba el foco del teclado.
-        NSApplication.shared.setActivationPolicy(.regular)
-    }
-
     var body: some Scene {
         WindowGroup("Asistent IA", id: "main") {
             ContentView()

@@ -1,0 +1,69 @@
+# Proyecto de Xcode generado con XcodeGen (brew install xcodegen):
+#   xcodegen generate     -> AsistentIA.xcodeproj (no se versiona)
+# Compilar e instalar en /Applications: scripts/build-app.sh --install
+name: AsistentIA
+options:
+  bundleIdPrefix: cloud.duck-hack
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  AsistentIA:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/AsistentIA
+      - path: Resources/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_NAME: "Asistent IA"
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.duck-hack.asistent-ia
+        PRODUCT_MODULE_NAME: AsistentIA
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: Resources/AsistentIA.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Duck-Hack"
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Asistent IA
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.productivity
+        NSMicrophoneUsageDescription: "Asistent IA graba tu voz durante las reuniones para transcribirlas en esta Mac. El audio no sale del equipo."
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+  AsistentIATests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/AsistentIATests
+    dependencies:
+      - target: AsistentIA
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.duck-hack.asistent-ia.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Asistent IA.app/Contents/MacOS/Asistent IA"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  AsistentIA:
+    build:
+      targets:
+        AsistentIA: all
+    test:
+      targets:
+        - AsistentIATests
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -4,7 +4,7 @@ chats de Teams y genera con Claude un análisis por proyecto (resumen, decisione
 action items, riesgos y bloqueos).
 
 ## Estructura
-- `apps/mac/` — app SwiftUI (Swift Package; abrir `apps/mac/Package.swift` en Xcode)
+- `apps/mac/` — app SwiftUI (proyecto Xcode generado con XcodeGen desde `project.yml`)
 - `backend/` — API Express + Mongoose + worker Agenda (TypeScript)
 - `packages/schema/` — esquema zod del análisis, compartido
 
@@ -19,11 +19,15 @@ npm test --workspace=backend            # tests (Mongo en memoria)
 ```
 
 ### App Mac
+Requiere Xcode y XcodeGen (`brew install xcodegen`).
 ```bash
 cd apps/mac
-swift build && swift run AsistentIA     # o abrir Package.swift en Xcode y ⌘R
-swift test
+scripts/build-app.sh --install   # compila Release y la instala en /Applications
+scripts/build-app.sh --dmg       # además genera dist/AsistentIA.dmg
+xcodegen generate && open AsistentIA.xcodeproj   # para desarrollar en Xcode (⌘R, ⌘U)
 ```
+La firma se configura en `apps/mac/Config/Signing.xcconfig` (ad-hoc por defecto;
+con un Team ID de Apple Development los permisos de micrófono no se piden en cada build).
 En **Ajustes** (⌘,) pon la URL del backend y el `API_TOKEN`; el token se guarda en el llavero.
 
 ## Despliegue (servidor con Nginx Proxy Manager)

@@ -1,3 +1,7 @@
 .build/
 .swiftpm/
-*.xcodeproj/xcuserdata/
+build/
+dist/
+# Lo genera XcodeGen a partir de project.yml.
+AsistentIA.xcodeproj/
+Resources/Info.plist
