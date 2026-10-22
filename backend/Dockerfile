@@ -13,7 +13,11 @@ COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/package.json
 COPY packages/schema/package.json ./packages/schema/package.json
 
-RUN npm ci --workspace=backend --workspace=@asistent-ia/schema --include-workspace-root
+# --ignore-scripts: ninguna dependencia necesaria para compilar o correr usa
+# scripts de instalación; el único relevante es el postinstall de
+# mongodb-memory-server (devDependency de tests), que descarga un binario de
+# MongoDB de cientos de MB y deja el build colgado en este paso.
+RUN npm ci --ignore-scripts --workspace=backend --workspace=@asistent-ia/schema --include-workspace-root
 
 # Código fuente y compilación TypeScript -> dist/ (schema primero: el backend
 # importa sus tipos ya compilados).
