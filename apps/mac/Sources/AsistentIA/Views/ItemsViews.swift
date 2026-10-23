@@ -96,6 +96,8 @@ struct StatusMenu: View {
             }
             .disabled(status == item.status)
         }
+        Divider()
+        Button("Eliminar pendiente…", role: .destructive) { store.pendingDeletion = .item(item) }
     }
 }
 
@@ -201,6 +203,13 @@ struct ItemDetailView: View {
                     }
                     .disabled(note.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+
+                Button(role: .destructive) {
+                    store.pendingDeletion = .item(item)
+                } label: {
+                    Label("Eliminar pendiente", systemImage: "trash")
+                }
+                .padding(.top, 8)
             }
             .padding(24)
             .frame(maxWidth: 760, alignment: .leading)

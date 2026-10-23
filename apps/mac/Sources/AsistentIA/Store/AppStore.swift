@@ -77,6 +77,85 @@ final class AppStore {
     var selectedDigest: WeeklyDigest? { digests.first { $0.id == selectedDigestId } }
     var errorMessage: String?
 
+    // MARK: Eliminar
+
+    /// Lo que el usuario pidió eliminar; ContentView muestra la confirmación.
+    enum Deletion: Identifiable {
+        case project(Project), person(TeamMember), session(Session), item(TrackedItem), digest(WeeklyDigest), oneOnOne(OneOnOnePrep)
+
+        var id: String {
+            switch self {
+            case let .project(x): "project-\(x.id)"
+            case let .person(x): "person-\(x.id)"
+            case let .session(x): "session-\(x.id)"
+            case let .item(x): "item-\(x.id)"
+            case let .digest(x): "digest-\(x.id)"
+            case let .oneOnOne(x): "oneOnOne-\(x.id)"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case let .project(x): "¿Eliminar el proyecto “\(x.name)”?"
+            case let .person(x): "¿Eliminar a \(x.name)?"
+            case let .session(x): "¿Eliminar la sesión “\(x.title)”?"
+            case .item: "¿Eliminar este pendiente?"
+            case let .digest(x): "¿Eliminar el resumen de \(x.periodLabel)?"
+            case .oneOnOne: "¿Eliminar esta preparación de 1:1?"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .project:
+                "Se borrarán todas sus sesiones (transcripciones y análisis), sus pendientes y sus resúmenes semanales. Las personas se conservan. No se puede deshacer."
+            case .person:
+                "Se borrarán sus preparaciones de 1:1 y saldrá de sus proyectos. Sus pendientes se conservan con su nombre, pero sin ligarse a nadie. Para ocultarla sin borrar nada, usa Archivar. No se puede deshacer."
+            case .session:
+                "Se borrarán su transcripción, su análisis y los pendientes que nacieron en ella. No se puede deshacer."
+            case let .item(x):
+                "“\(x.task)”. No se puede deshacer."
+            case .digest, .oneOnOne:
+                "No se puede deshacer."
+            }
+        }
+    }
+
+    var pendingDeletion: Deletion?
+
+    func confirmDeletion(_ deletion: Deletion) async {
+        pendingDeletion = nil
+        switch deletion {
+        case let .project(x):
+            guard await run({ try await api.delete("/api/projects/\(x.id)") }) else { return }
+            if selectedProjectId == x.id { selectedProjectId = nil; selectedSessionId = nil }
+            await loadProjects()
+        case let .person(x):
+            guard await run({ try await api.delete("/api/people/\(x.id)") }) else { return }
+            if selectedPersonId == x.id { selectedPersonId = nil }
+            await loadPeople()
+        case let .session(x):
+            guard await run({ try await api.delete("/api/sessions/\(x.id)") }) else { return }
+            if selectedSessionId == x.id { selectedSessionId = nil; detail = nil }
+            await loadSessions()
+            await loadPeople()
+        case let .item(x):
+            guard await run({ try await api.delete("/api/action-items/\(x.id)") }) else { return }
+            if selectedItemId == x.id { selectedItemId = nil }
+            await reloadAfterItemChange()
+        case let .digest(x):
+            guard let projectId = selectedProjectId,
+                  await run({ try await api.delete("/api/projects/\(projectId)/digests/\(x.id)") }) else { return }
+            if selectedDigestId == x.id { selectedDigestId = nil }
+            await loadDigests()
+        case let .oneOnOne(x):
+            guard let personId = selectedPersonId,
+                  await run({ try await api.delete("/api/people/\(personId)/one-on-ones/\(x.id)") }) else { return }
+            if selectedOneOnOneId == x.id { selectedOneOnOneId = nil }
+            await loadPersonTab()
+        }
+    }
+
     private let api = APIClient()
     private var pollTask: Task<Void, Never>?
 

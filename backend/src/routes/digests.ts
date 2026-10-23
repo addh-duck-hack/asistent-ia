@@ -39,3 +39,9 @@ digestsRouter.post("/", async (req, res) => {
   });
   res.status(201).json(digest);
 });
+
+digestsRouter.delete("/:digestId", async (req, res) => {
+  const { projectId, digestId } = req.params as { projectId: string; digestId: string };
+  const { deletedCount } = await DigestModel.deleteOne({ _id: digestId, projectId });
+  res.status(deletedCount ? 200 : 404).json({ deleted: deletedCount });
+});

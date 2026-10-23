@@ -122,3 +122,8 @@ actionItemsRouter.patch("/:id", async (req, res) => {
   await item.save();
   res.json(item);
 });
+
+actionItemsRouter.delete("/:id", async (req, res) => {
+  const { deletedCount } = await ActionItemModel.deleteOne({ _id: req.params.id });
+  res.status(deletedCount ? 200 : 404).json({ deleted: deletedCount });
+});

@@ -147,6 +147,12 @@ struct APIClient: Sendable {
         _ = try await request("/api/action-items", method: "POST", body: body, as: Ignored.self)
     }
 
+    /// DELETE genérico; el backend responde con lo que borró (se ignora).
+    func delete(_ path: String) async throws {
+        struct Ignored: Decodable {}
+        _ = try await request(path, method: "DELETE", as: Ignored.self)
+    }
+
     func analysisProfiles() async throws -> [AnalysisProfile] {
         try await request("/api/analysis-profiles", as: [AnalysisProfile].self)
     }

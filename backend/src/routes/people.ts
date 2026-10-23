@@ -11,6 +11,7 @@ import {
   TranscriptModel,
 } from "../models/index.js";
 import { buildOneOnOneInput, generateOneOnOne } from "../llm/oneOnOne.js";
+import { deletePerson } from "../utils/deletion.js";
 import { cleanAliases, findAliasConflict, linkOwnerItems, normalize, personKeys } from "../utils/people.js";
 
 export const peopleRouter = Router();
@@ -219,4 +220,15 @@ peopleRouter.post("/:id/one-on-ones", async (req, res) => {
     usage: out.usage,
   });
   res.status(201).json(prep);
+});
+
+// Borrar definitivamente (para ocultar sin perder datos existe "archivar": PATCH active=false).
+peopleRouter.delete("/:id", async (req, res) => {
+  const result = await deletePerson(ObjectId.parse(req.params.id));
+  res.status(result.person ? 200 : 404).json(result);
+});
+
+peopleRouter.delete("/:id/one-on-ones/:prepId", async (req, res) => {
+  const { deletedCount } = await OneOnOneModel.deleteOne({ _id: req.params.prepId, personId: ObjectId.parse(req.params.id) });
+  res.status(deletedCount ? 200 : 404).json({ deleted: deletedCount });
 });

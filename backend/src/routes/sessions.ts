@@ -10,6 +10,7 @@ import {
 } from "../models/index.js";
 import { enqueueAnalysis } from "../jobs/queue.js";
 import { parseVtt } from "../utils/vtt.js";
+import { deleteSessions } from "../utils/deletion.js";
 
 export const sessionsRouter = Router();
 
@@ -109,4 +110,13 @@ sessionsRouter.post("/:id/reanalyze", async (req, res) => {
   }
   await enqueueAnalysis(String(session._id));
   res.status(202).json(session);
+});
+
+// Borra la sesión con su transcripción, su análisis y los pendientes que nacieron en ella.
+sessionsRouter.delete("/:id", async (req, res) => {
+  if (!(await SessionModel.exists({ _id: req.params.id }))) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+  res.json(await deleteSessions([req.params.id]));
 });

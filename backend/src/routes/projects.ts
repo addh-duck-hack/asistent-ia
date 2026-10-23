@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { AnalysisModel, ProjectModel, SessionModel } from "../models/index.js";
+import { deleteProject } from "../utils/deletion.js";
 
 export const projectsRouter = Router();
 
@@ -50,4 +51,14 @@ projectsRouter.get("/:id/sessions", async (req, res) => {
       return { ...s, summary: a?.summaryText ?? null, costUsd: a?.usage?.costUsd ?? null };
     }),
   );
+});
+
+// Borra el proyecto con sus sesiones, transcripciones, análisis, pendientes y resúmenes.
+projectsRouter.delete("/:id", async (req, res) => {
+  const result = await deleteProject(req.params.id);
+  if (result.project === 0) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+  res.json(result);
 });

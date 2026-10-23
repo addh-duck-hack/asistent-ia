@@ -74,10 +74,16 @@ struct PersonEditorSheet: View {
         .frame(width: 480, height: 560)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
-            if person != nil {
+            if let person {
                 ToolbarItem(placement: .destructiveAction) {
-                    Button("Archivar", role: .destructive) { save(active: false) }
-                        .help("Deja de aparecer y de asignarse; conserva su historial")
+                    Menu("Quitar") {
+                        Button("Archivar (conserva su historial)") { save(active: false) }
+                        Button("Eliminar definitivamente…", role: .destructive) {
+                            dismiss()
+                            store.pendingDeletion = .person(person)
+                        }
+                    }
+                    .fixedSize()
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
@@ -338,6 +344,9 @@ private struct OneOnOneListView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .tag(prep.id)
+                    .contextMenu {
+                        Button("Eliminar…", role: .destructive) { store.pendingDeletion = .oneOnOne(prep) }
+                    }
                 }
             }
             Divider()

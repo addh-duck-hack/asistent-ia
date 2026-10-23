@@ -70,6 +70,13 @@ struct SessionDetailView: View {
             }
             .disabled(session.status.isInProgress)
             .help("Clic: mismo nivel · Flecha: elegir otro nivel")
+
+            Button(role: .destructive) {
+                store.pendingDeletion = .session(session)
+            } label: {
+                Label("Eliminar sesión", systemImage: "trash")
+            }
+            .help("Eliminar sesión")
         }
     }
 

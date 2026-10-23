@@ -24,6 +24,9 @@ struct DigestListView: View {
                     }
                     .padding(.vertical, 3)
                     .tag(digest.id)
+                    .contextMenu {
+                        Button("Eliminar resumen…", role: .destructive) { store.pendingDeletion = .digest(digest) }
+                    }
                 }
             }
             Divider()

@@ -15,11 +15,17 @@ struct ContentView: View {
                     ForEach(store.projects) { project in
                         Label(project.name, systemImage: "folder")
                             .tag(AppStore.SidebarItem.project(project.id))
+                            .contextMenu {
+                                Button("Eliminar proyecto…", role: .destructive) { store.pendingDeletion = .project(project) }
+                            }
                     }
                 }
                 Section {
                     ForEach(store.people) { person in
                         PersonRow(person: person).tag(AppStore.SidebarItem.person(person.id))
+                            .contextMenu {
+                                Button("Eliminar persona…", role: .destructive) { store.pendingDeletion = .person(person) }
+                            }
                     }
                     Button { showNewPerson = true } label: { Label("Agregar persona", systemImage: "person.badge.plus") }
                         .buttonStyle(.plain)
@@ -94,6 +100,16 @@ struct ContentView: View {
                 }
             }
         }
+        .confirmationDialog(
+            store.pendingDeletion?.title ?? "",
+            isPresented: Binding(get: { store.pendingDeletion != nil }, set: { if !$0 { store.pendingDeletion = nil } }),
+            presenting: store.pendingDeletion
+        ) { deletion in
+            Button("Eliminar", role: .destructive) { Task { await store.confirmDeletion(deletion) } }
+            Button("Cancelar", role: .cancel) { store.pendingDeletion = nil }
+        } message: { deletion in
+            Text(deletion.message)
+        }
         .sheet(isPresented: $showNewProject) { NewProjectSheet() }
         .sheet(isPresented: $showNewPerson) { PersonEditorSheet(person: nil) }
         .sheet(isPresented: $showNewSession) { NewSessionSheet() }
@@ -167,6 +183,9 @@ struct SessionListView: View {
                     }
                     .padding(.vertical, 4)
                     .tag(session.id)
+                    .contextMenu {
+                        Button("Eliminar sesión…", role: .destructive) { store.pendingDeletion = .session(session) }
+                    }
                 }
             }
         }
