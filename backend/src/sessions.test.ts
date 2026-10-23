@@ -72,7 +72,7 @@ const fakeAnalyzer = (result = fakeResult()) =>
       depth: input.depth,
       model: "claude-sonnet-5-5",
       effort: "medium",
-      promptVersion: "analysis-v2",
+      promptVersion: "analysis-v3",
       usage: { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 800, costUsd: 0.009 },
     }),
   );
