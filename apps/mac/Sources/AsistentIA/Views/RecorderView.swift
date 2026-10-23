@@ -72,7 +72,8 @@ struct RecorderView: View {
                 Spacer()
                 Button {
                     guard let projectId else { return }
-                    Task { await recorder.start(.init(projectId: projectId, title: title, depth: depth)) }
+                    let vocabulary = store.projects.first { $0.id == projectId }?.vocabulary ?? []
+                    Task { await recorder.start(.init(projectId: projectId, title: title, depth: depth, vocabulary: vocabulary)) }
                 } label: {
                     Label("Comenzar a grabar", systemImage: "record.circle")
                 }

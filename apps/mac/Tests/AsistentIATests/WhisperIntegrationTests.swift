@@ -42,3 +42,35 @@ func transcribesSynthesizedSpanishSpeech() async throws {
     #expect(text.contains("stripe"))
     #expect(text.contains("jueves"))
 }
+
+/// La pista de vocabulario orienta a Whisper hacia "Toks" y "Landing".
+/// Solo corre con: TEST_RUNNER_ASISTENT_WHISPER_TEST=1 xcodebuild test …
+@Test(.enabled(if: ProcessInfo.processInfo.environment["ASISTENT_WHISPER_TEST"] == "1"), .timeLimit(.minutes(20)))
+func vocabularyPromptGuidesWhisper() async throws {
+    let dir = FileManager.default.temporaryDirectory.appending(path: "asistent-vocab-test-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    let aiff = dir.appending(path: "voz.aiff")
+    let say = Process()
+    say.executableURL = URL(filePath: "/usr/bin/say")
+    say.arguments = ["-v", "Eddy (Español (México))", "-o", aiff.path,
+                     "Ayer estuve trabajando en la landing de Buen Fin y también en unos ajustes para Toks, las cards de producto."]
+    try say.run()
+    say.waitUntilExit()
+    let sink = try AudioFileSink(url: dir.appending(path: "mic.wav"))
+    let source = try AVAudioFile(forReading: aiff)
+    while source.framePosition < source.length {
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: source.processingFormat, frameCapacity: 4096))
+        try source.read(into: buffer)
+        sink.append(buffer)
+    }
+    sink.close()
+
+    let plain = try await TranscriptionService.shared.transcribe(sink.url) { _ in }.map(\.text).joined(separator: " ")
+    let guided = try await TranscriptionService.shared.transcribe(sink.url, vocabulary: ["Toks", "Landing", "Buen Fin"]) { _ in }
+        .map(\.text).joined(separator: " ")
+    print("Sin vocabulario: \(plain)\nCon vocabulario: \(guided)")
+    #expect(guided.contains("Toks"))
+    #expect(!guided.lowercased().contains("glosario")) // no repite la pista
+}

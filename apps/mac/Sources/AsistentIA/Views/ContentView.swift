@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var showNewProject = false
     @State private var showNewPerson = false
     @State private var showNewSession = false
+    @State private var editingProject: Project?
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -19,6 +20,7 @@ struct ContentView: View {
                         Label(project.name, systemImage: "folder")
                             .tag(AppStore.SidebarItem.project(project.id))
                             .contextMenu {
+                                Button("Editar proyecto…") { editingProject = project }
                                 Button("Preguntar sobre este proyecto…") { store.startConversation(projectId: project.id) }
                                 Button("Exportar proyecto a Obsidian") { Task { await store.export(project: project) } }
                                     .disabled(store.exporting)
@@ -125,6 +127,7 @@ struct ContentView: View {
             Text(deletion.message)
         }
         .sheet(isPresented: $showNewProject) { NewProjectSheet() }
+        .sheet(item: $editingProject) { NewProjectSheet(project: $0) }
         .sheet(isPresented: $showNewPerson) { PersonEditorSheet(person: nil) }
         .sheet(isPresented: $showNewSession) { NewSessionSheet() }
         .overlay(alignment: .bottom) {
@@ -141,7 +144,10 @@ struct ContentView: View {
                     .onTapGesture { store.errorMessage = nil }
             }
         }
-        .task { await store.loadProjects() }
+        .task {
+            SessionAudio.shared.purge()
+            await store.loadProjects()
+        }
         .onChange(of: store.selectedProjectId) {
             store.selectedSessionId = nil
             store.selectedItemId = nil

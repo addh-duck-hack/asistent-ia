@@ -149,6 +149,10 @@ struct VoiceStore {
         (try? Data(contentsOf: sessionURL(sessionId))).flatMap { try? JSONDecoder().decode([String: [Float]].self, from: $0) } ?? [:]
     }
 
+    func deleteSessionVoices(_ sessionId: String) {
+        try? FileManager.default.removeItem(at: sessionURL(sessionId))
+    }
+
     func saveSessionVoices(_ sessionId: String, _ voices: [String: [Float]]) throws {
         let url = sessionURL(sessionId)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

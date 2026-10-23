@@ -10,9 +10,11 @@ struct Project: Codable, Identifiable, Hashable {
     var description: String?
     var context: String?
     var archived: Bool?
+    /// Términos que la transcripción confunde ("Toks", "Landing").
+    var vocabulary: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case id = "_id", name, description, context, archived
+        case id = "_id", name, description, context, archived, vocabulary
     }
 }
 
@@ -192,6 +194,7 @@ struct CreateProjectRequest: Encodable {
     let name: String
     let description: String
     let context: String
+    var vocabulary: [String] = []
 }
 
 struct CreateSessionRequest: Encodable {

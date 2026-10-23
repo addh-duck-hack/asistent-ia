@@ -30,9 +30,9 @@ enum TranscriptMerger {
         "...",
     ]
 
-    static func merge(me: [TimedText], others: [TimedText]) -> [Segment] {
-        let mine = clean(me)
-        let theirs = clean(others)
+    static func merge(me: [TimedText], others: [TimedText], vocabulary: [String] = []) -> [Segment] {
+        let mine = clean(me, vocabulary: vocabulary)
+        let theirs = clean(others, vocabulary: vocabulary)
         // Si el micrófono capta lo que suena en las bocinas, el mismo texto
         // aparece en ambas pistas: se conserva solo el del sistema.
         let mineWithoutEcho = mine.filter { m in
@@ -44,18 +44,29 @@ enum TranscriptMerger {
             .map { Segment(startSec: $0.0.start, endSec: $0.0.end, speaker: $0.1, text: $0.0.text) }
     }
 
-    static func clean(_ items: [TimedText]) -> [TimedText] {
+    static func clean(_ items: [TimedText], vocabulary: [String] = []) -> [TimedText] {
         var result: [TimedText] = []
         for item in items {
             let text = item.text
                 .replacingOccurrences(of: #"<\|[^|]*\|>"#, with: "", options: .regularExpression) // tokens especiales
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, !isHallucination(text) else { continue }
+            guard !text.isEmpty, !isHallucination(text), !echoesVocabulary(text, vocabulary) else { continue }
             // Whisper a veces repite la misma frase en ventanas seguidas.
             if let last = result.last, normalized(last.text) == normalized(text) { continue }
             result.append(TimedText(start: item.start, end: item.end, text: text, speaker: item.speaker))
         }
         return result
+    }
+
+    /// Con la pista de vocabulario, Whisper a veces la "dice" sobre un silencio:
+    /// el fragmento es "Glosario: …" o solo términos del vocabulario.
+    static func echoesVocabulary(_ text: String, _ vocabulary: [String]) -> Bool {
+        guard !vocabulary.isEmpty else { return false }
+        let n = normalized(text)
+        if n.hasPrefix("glosario") { return true }
+        let terms = Set(vocabulary.map(normalized))
+        let parts = text.split(whereSeparator: { ",.;".contains($0) }).map { normalized(String($0)) }.filter { !$0.isEmpty }
+        return parts.count >= 2 && parts.allSatisfy(terms.contains)
     }
 
     static func isHallucination(_ text: String) -> Bool {

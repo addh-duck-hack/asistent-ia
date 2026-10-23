@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SessionDetailView: View {
     @Environment(AppStore.self) private var store
+    @State private var replacing = false
 
     var body: some View {
         Group {
@@ -44,12 +45,21 @@ struct SessionDetailView: View {
 
                 if let transcript = detail.transcript {
                     DisclosureGroup("Transcripción") {
-                        Text(transcript.text)
-                            .font(.system(.callout, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 6)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button {
+                                replacing = true
+                            } label: {
+                                Label("Buscar y reemplazar…", systemImage: "text.magnifyingglass")
+                            }
+                            .disabled(session.status.isInProgress)
+                            Text(transcript.text)
+                                .font(.system(.callout, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.top, 6)
                     }
+                    .sheet(isPresented: $replacing) { ReplaceSheet(detail: detail) }
                 }
             }
             .padding(24)
@@ -241,6 +251,7 @@ struct VoicesSection: View {
     let detail: SessionDetail
     @State private var selection: [String: String] = [:] // etiqueta → personId
     @State private var saving = false
+    private var player: ClipPlayer { ClipPlayer.shared }
 
     private var voices: [String: [Float]] { VoiceStore.shared.sessionVoices(detail.session.id) }
 
@@ -269,10 +280,15 @@ struct VoicesSection: View {
                         }
                         .labelsHidden()
                         .frame(maxWidth: 240)
+                        PlayVoiceButton(sessionId: detail.session.id, label: label, segments: detail.transcript?.segments ?? [])
                         if voices[label] == nil {
                             Image(systemName: "waveform.slash").foregroundStyle(.tertiary)
                                 .help("Sin huella guardada en esta Mac: se renombra, pero no se reconocerá sola después")
                         }
+                    }
+                    if let clip = player.playingId.flatMap({ PlayVoiceButton.clip(playing: $0, label: label, segments: detail.transcript?.segments ?? []) }) {
+                        Text("“\(clip.text)”").font(.caption).italic().foregroundStyle(.secondary)
+                            .lineLimit(2).padding(.leading, 158)
                     }
                     if let guess = guess(for: label) {
                         Text("Claude: \(guess.name ?? "sin identificar") — \(guess.evidence)")
@@ -317,5 +333,43 @@ struct VoicesSection: View {
         return store.people.first { p in
             ([p.name] + p.aliases).contains { $0.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current) == key }
         }
+    }
+}
+
+/// Reproduce extractos de una voz (sus fragmentos más largos); cada clic pasa al siguiente.
+struct PlayVoiceButton: View {
+    let sessionId: String
+    let label: String
+    let segments: [Segment]
+    @State private var next = 0
+    private var player: ClipPlayer { ClipPlayer.shared }
+
+    private var clips: [Clip] { Clip.samples(for: label, in: segments) }
+    private var audio: URL? { SessionAudio.shared.url(sessionId: sessionId, track: label == "me" ? .mic : .system) }
+    private var isPlaying: Bool { player.playingId?.hasPrefix("\(sessionId)|\(label)|") == true }
+
+    var body: some View {
+        if let audio, !clips.isEmpty {
+            Button {
+                if isPlaying { player.stop(); return }
+                let clip = clips[next % clips.count]
+                player.play(audio, from: clip.start, to: clip.end, id: Self.id(sessionId, label, next % clips.count))
+                next += 1
+            } label: {
+                Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill").font(.title3)
+            }
+            .buttonStyle(.plain)
+            .help("Escuchar un extracto de esta voz (\(clips.count) disponibles; cada clic, el siguiente)")
+        }
+    }
+
+    static func id(_ sessionId: String, _ label: String, _ index: Int) -> String { "\(sessionId)|\(label)|\(index)" }
+
+    /// El extracto que está sonando, si es de esta voz.
+    static func clip(playing id: String, label: String, segments: [Segment]) -> Clip? {
+        let parts = id.split(separator: "|")
+        guard parts.count == 3, parts[1] == label, let i = Int(parts[2]) else { return nil }
+        let clips = Clip.samples(for: label, in: segments)
+        return clips.indices.contains(i) ? clips[i] : nil
     }
 }

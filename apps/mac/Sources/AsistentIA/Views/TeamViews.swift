@@ -132,13 +132,13 @@ struct PersonEditorSheet: View {
     }
 }
 
-/// Chips con botón para quitar.
-private struct FlowChips: View {
+/// Chips con botón para quitar; pasan a la siguiente línea si no caben.
+struct FlowChips: View {
     let items: [String]
     let onRemove: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
+        WrapLayout(spacing: 6) {
             ForEach(items, id: \.self) { item in
                 HStack(spacing: 4) {
                     Text(item)
@@ -512,5 +512,47 @@ struct NewTaskSheet: View {
                 .disabled(task.trimmingCharacters(in: .whitespaces).isEmpty || projectId == nil || saving)
             }
         }
+    }
+}
+
+/// Acomoda las vistas en renglones, pasando a la siguiente línea cuando no caben.
+struct WrapLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(for: subviews, width: proposal.width ?? .infinity)
+        let height = rows.map { $0.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0 }.reduce(0, +)
+            + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: proposal.width ?? rows.map(rowWidth).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(for: subviews, width: bounds.width) {
+            var x = bounds.minX
+            let height = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            for view in row {
+                let size = view.sizeThatFits(.unspecified)
+                view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += height + spacing
+        }
+    }
+
+    private func rows(for subviews: Subviews, width: CGFloat) -> [[LayoutSubview]] {
+        var rows: [[LayoutSubview]] = [[]]
+        var x: CGFloat = 0
+        for view in subviews {
+            let w = view.sizeThatFits(.unspecified).width
+            if x > 0, x + w > width { rows.append([]); x = 0 }
+            rows[rows.count - 1].append(view)
+            x += w + spacing
+        }
+        return rows
+    }
+
+    private func rowWidth(_ row: [LayoutSubview]) -> CGFloat {
+        row.map { $0.sizeThatFits(.unspecified).width }.reduce(0, +) + spacing * CGFloat(max(row.count - 1, 0))
     }
 }

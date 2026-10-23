@@ -281,7 +281,10 @@ final class AppStore {
         pendingDeletion = nil
         switch deletion {
         case let .project(x):
+            // Ids de sus sesiones antes de borrar, para limpiar su audio y voces locales.
+            let sessionIds = (try? await api.sessions(projectId: x.id))?.map(\.id) ?? []
             guard await run({ try await api.delete("/api/projects/\(x.id)") }) else { return }
+            sessionIds.forEach(deleteLocalData)
             if selectedProjectId == x.id { selectedProjectId = nil; selectedSessionId = nil }
             await loadProjects()
         case let .person(x):
@@ -290,6 +293,7 @@ final class AppStore {
             await loadPeople()
         case let .session(x):
             guard await run({ try await api.delete("/api/sessions/\(x.id)") }) else { return }
+            deleteLocalData(x.id)
             if selectedSessionId == x.id { selectedSessionId = nil; detail = nil }
             await loadSessions()
             await loadPeople()
@@ -315,6 +319,12 @@ final class AppStore {
     }
 
     private let api = APIClient()
+
+    /// Audio y huellas de voz de la sesión guardados en esta Mac.
+    private func deleteLocalData(_ sessionId: String) {
+        SessionAudio.shared.delete(sessionId: sessionId)
+        VoiceStore.shared.deleteSessionVoices(sessionId)
+    }
     private var pollTask: Task<Void, Never>?
 
     var selectedProject: Project? { projects.first { $0.id == selectedProjectId } }
@@ -393,9 +403,39 @@ final class AppStore {
         await loadPeople() // contadores de la barra lateral
     }
 
-    func createProject(name: String, description: String, context: String) async -> Bool {
+    func updateProject(id: String, _ body: CreateProjectRequest) async -> Bool {
         await run {
-            let project = try await api.createProject(.init(name: name, description: description, context: context))
+            let project = try await api.updateProject(id: id, body)
+            if let i = projects.firstIndex(where: { $0.id == id }) { projects[i] = project }
+        }
+    }
+
+    /// Buscar y reemplazar en la transcripción de la sesión abierta. Si se pide,
+    /// agrega el término al vocabulario del proyecto para las próximas grabaciones.
+    /// No re-analiza: se pueden hacer varios reemplazos y re-analizar una vez.
+    func replaceInTranscript(find: String, replace: String, addToVocabulary: Bool) async -> Int? {
+        guard let detail else { return nil }
+        var count: Int?
+        let ok = await run {
+            count = try await api.replaceInTranscript(sessionId: detail.session.id, find: find, replace: replace)
+            if addToVocabulary, let project = projects.first(where: { $0.id == detail.session.projectId }) {
+                let term = replace.trimmingCharacters(in: .whitespaces)
+                var vocabulary = project.vocabulary ?? []
+                if !term.isEmpty, !vocabulary.contains(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
+                    vocabulary.append(term)
+                    let updated = try await api.updateProject(id: project.id, .init(
+                        name: project.name, description: project.description ?? "", context: project.context ?? "", vocabulary: vocabulary))
+                    if let i = projects.firstIndex(where: { $0.id == project.id }) { projects[i] = updated }
+                }
+            }
+            self.detail = try await api.session(id: detail.session.id)
+        }
+        return ok ? count : nil
+    }
+
+    func createProject(_ body: CreateProjectRequest) async -> Bool {
+        await run {
+            let project = try await api.createProject(body)
             projects.append(project)
             projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             selectedProjectId = project.id

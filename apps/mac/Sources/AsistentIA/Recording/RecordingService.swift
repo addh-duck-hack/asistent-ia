@@ -7,6 +7,8 @@ struct RecordingMeta: Sendable {
     var projectId: String
     var title: String
     var depth: AnalysisDepth
+    /// Vocabulario del proyecto: pista para Whisper.
+    var vocabulary: [String] = []
 }
 
 /// Coordina grabar → transcribir localmente → subir al backend.
@@ -149,7 +151,7 @@ final class RecordingService {
             for (sink, offset) in tracks {
                 let share = 1.0 / Double(tracks.count)
                 phase = .transcribing(progress: offset)
-                results[sink.url] = try await TranscriptionService.shared.transcribe(sink.url) { p in
+                results[sink.url] = try await TranscriptionService.shared.transcribe(sink.url, vocabulary: meta.vocabulary) { p in
                     Task { @MainActor in self.phase = .transcribing(progress: offset + p * share) }
                 }
             }
@@ -165,7 +167,7 @@ final class RecordingService {
                 }
             }
 
-            let segments = TranscriptMerger.merge(me: results[micSink.url] ?? [], others: others)
+            let segments = TranscriptMerger.merge(me: results[micSink.url] ?? [], others: others, vocabulary: meta.vocabulary)
             guard !segments.isEmpty else { throw RecordingError.emptyTranscript }
 
             phase = .uploading
@@ -180,6 +182,9 @@ final class RecordingService {
             ))
 
             if !voices.isEmpty { try? VoiceStore.shared.saveSessionVoices(session.id, voices) }
+            // Copia comprimida (30 días) para escuchar voces y revisar correcciones.
+            try? SessionAudio.shared.save(sessionId: session.id,
+                                          tracks: hasSystem ? [.mic: micSink.url, .system: systemSink.url] : [.mic: micSink.url])
             if !(UserDefaults.standard.bool(forKey: Self.keepAudioKey)) {
                 try? FileManager.default.removeItem(at: folder)
             }

@@ -13,6 +13,7 @@ struct SettingsView: View {
     @AppStorage(AudioDevices.selectedMicKey) private var micUID = ""
     @AppStorage(VoiceStore.enabledKey) private var diarize = true
     @State private var voiceProfiles = VoiceStore.shared.profiles()
+    @State private var audioBytes = SessionAudio.shared.totalBytes()
     @AppStorage(ObsidianExporter.rootKey) private var obsidianRoot = ""
     @AppStorage(ObsidianExporter.autoExportKey) private var obsidianAuto = false
 
@@ -38,7 +39,19 @@ struct SettingsView: View {
                     ForEach(AudioDevices.inputs()) { Text($0.name).tag($0.uid) }
                 }
                 Toggle("Cancelación de eco (experimental: puede dejar el micrófono en silencio)", isOn: $voiceProcessing)
-                Toggle("Conservar el audio después de subir la transcripción", isOn: $keepAudio)
+                Toggle("Conservar también los WAV originales después de subir la transcripción", isOn: $keepAudio)
+                LabeledContent("Audio de las llamadas") {
+                    HStack {
+                        Text(ByteCountFormatter.string(fromByteCount: audioBytes, countStyle: .file)).foregroundStyle(.secondary)
+                        Button("Borrar audios guardados", role: .destructive) {
+                            SessionAudio.shared.deleteAll()
+                            audioBytes = 0
+                        }
+                        .disabled(audioBytes == 0)
+                    }
+                }
+                Text("Se guarda comprimido en esta Mac \(SessionAudio.retentionDays) días para escuchar las voces y revisar correcciones; después se borra solo.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Button("Mostrar grabaciones en Finder") {
                     try? FileManager.default.createDirectory(at: RecordingService.recordingsDirectory, withIntermediateDirectories: true)
                     NSWorkspace.shared.open(RecordingService.recordingsDirectory)

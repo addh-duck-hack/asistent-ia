@@ -47,15 +47,26 @@ actor TranscriptionService {
         return pipe
     }
 
+    /// Pista para Whisper con el vocabulario del proyecto: lo orienta a escribir
+    /// "Toks" o "Landing" en lugar de "Tox" o "London".
+    static func vocabularyPrompt(_ vocabulary: [String]) -> String? {
+        let terms = vocabulary.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.prefix(40)
+        return terms.isEmpty ? nil : " Glosario: \(terms.joined(separator: ", "))."
+    }
+
     /// Transcribe un archivo en español; `progress` recibe 0…1.
-    func transcribe(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> [TimedText] {
+    func transcribe(_ url: URL, vocabulary: [String] = [], progress: @escaping @Sendable (Double) -> Void) async throws -> [TimedText] {
         let pipe = try await prepare { _ in }
-        let options = DecodingOptions(
+        var options = DecodingOptions(
             task: .transcribe,
             language: "es",
             skipSpecialTokens: true,
             chunkingStrategy: .vad
         )
+        // WhisperKit recorta la pista a lo que cabe y quita los tokens especiales.
+        if let prompt = Self.vocabularyPrompt(vocabulary), let tokenizer = pipe.tokenizer {
+            options.promptTokens = Array(tokenizer.encode(text: prompt).prefix(100))
+        }
         // Reporta el avance mientras corre. WhisperKit reemplaza su `progress` al
         // empezar cada transcripción, así que se lee la propiedad en cada vuelta.
         nonisolated(unsafe) let observed = pipe
