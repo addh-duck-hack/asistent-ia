@@ -19,8 +19,8 @@ const input: AnalyzeInput = {
 describe("buildAnalysisRequest", () => {
   it("cada nivel usa su modelo y effort por defecto", () => {
     expect(buildAnalysisRequest({ ...input, depth: "quick" })).toMatchObject({
-      model: "claude-haiku-5-5",
-      output_config: { effort: "low" },
+      model: "claude-sonnet-5-5",
+      output_config: { effort: "medium" },
     });
     expect(buildAnalysisRequest({ ...input, depth: "standard" })).toMatchObject({
       model: "claude-sonnet-5-5",
@@ -29,7 +29,8 @@ describe("buildAnalysisRequest", () => {
   });
 
   it("no manda fallback del servidor a Haiku (no lo admite)", () => {
-    const req = buildAnalysisRequest({ ...input, depth: "quick" });
+    const haiku = { depth: "quick" as const, label: "", description: "", model: "claude-haiku-5-5", effort: "medium" as const };
+    const req = buildAnalysisRequest({ ...input, depth: "quick" }, haiku);
     expect(req).not.toHaveProperty("fallbacks");
     expect(req).not.toHaveProperty("betas");
     expect(buildAnalysisRequest({ ...input, depth: "standard" })).toMatchObject({ fallbacks: "default" });

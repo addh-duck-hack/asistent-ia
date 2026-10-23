@@ -20,8 +20,11 @@ const Env = z.object({
   NOTION_TOKEN: z.string().optional(),
   BACKEND_PUBLIC_URL: z.string().optional(),
   // Modelo y effort de cada nivel de análisis (ver llm/profiles.ts).
-  ANALYSIS_QUICK_MODEL: z.string().default("claude-haiku-5-5"),
-  ANALYSIS_QUICK_EFFORT: Effort.default("low"),
+  // Rápido usa Sonnet/medium: en las pruebas, Haiku (low y medium) y Sonnet
+  // en low no detectaron quién asumió cada tarea; quick y standard solo se
+  // distinguen por la extensión que pide el prompt.
+  ANALYSIS_QUICK_MODEL: z.string().default("claude-sonnet-5-5"),
+  ANALYSIS_QUICK_EFFORT: Effort.default("medium"),
   ANALYSIS_STANDARD_MODEL: z.string().default("claude-sonnet-5-5"),
   ANALYSIS_STANDARD_EFFORT: Effort.default("medium"),
   ANALYSIS_DEEP_MODEL: z.string().default("claude-opus-5-5"),

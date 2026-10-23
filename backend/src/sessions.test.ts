@@ -129,7 +129,7 @@ describe("POST /api/sessions", () => {
   it("expone los niveles con su modelo", async () => {
     const profiles = await fetch(`${base}/api/analysis-profiles`, { headers }).then((r) => r.json());
     expect(profiles.map((p: { depth: string; model: string }) => `${p.depth}:${p.model}`)).toEqual([
-      "quick:claude-haiku-5-5",
+      "quick:claude-sonnet-5-5",
       "standard:claude-sonnet-5-5",
       "deep:claude-opus-5-5",
     ]);
