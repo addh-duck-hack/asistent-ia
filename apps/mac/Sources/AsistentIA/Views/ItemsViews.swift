@@ -3,6 +3,7 @@ import SwiftUI
 /// Pendientes del proyecto, agrupados por urgencia.
 struct ItemsListView: View {
     @Environment(AppStore.self) private var store
+    @State private var newTask = false
 
     var body: some View {
         @Bindable var store = store
@@ -25,12 +26,17 @@ struct ItemsListView: View {
                 }
             }
             Divider()
-            Toggle("Mostrar hechos", isOn: $store.showDoneItems)
-                .toggleStyle(.checkbox)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .onChange(of: store.showDoneItems) { Task { await store.loadItems() } }
+            HStack {
+                Toggle("Mostrar hechos", isOn: $store.showDoneItems)
+                    .toggleStyle(.checkbox)
+                    .onChange(of: store.showDoneItems) { Task { await store.loadItems() } }
+                Spacer()
+                Button { newTask = true } label: { Label("Nueva tarea", systemImage: "plus") }
+                    .disabled(store.selectedProjectId == nil)
+            }
+            .padding(8)
         }
+        .sheet(isPresented: $newTask) { NewTaskSheet(fixedProjectId: store.selectedProjectId, fixedOwnerId: nil) }
     }
 
     @ViewBuilder
@@ -47,7 +53,7 @@ struct ItemsListView: View {
     }
 }
 
-private struct ItemRow: View {
+struct ItemRow: View {
     let item: TrackedItem
 
     var body: some View {
@@ -77,7 +83,7 @@ private struct ItemRow: View {
 }
 
 /// Menú para cambiar el estado (clic derecho en la lista y en el detalle).
-private struct StatusMenu: View {
+struct StatusMenu: View {
     @Environment(AppStore.self) private var store
     let item: TrackedItem
 
@@ -116,7 +122,21 @@ struct ItemDetailView: View {
                     }
                     GridRow {
                         Text("Responsable").foregroundStyle(.secondary)
-                        Text(item.owner ?? "Sin responsable").foregroundStyle(item.owner == nil ? .orange : .primary)
+                        Menu {
+                            Button("Sin responsable") { Task { await store.assign(item, to: nil) } }
+                            Divider()
+                            ForEach(store.people) { person in
+                                Button(person.name) { Task { await store.assign(item, to: person.id) } }
+                                    .disabled(person.id == item.ownerId)
+                            }
+                        } label: {
+                            Text(item.owner ?? "Sin responsable")
+                                .foregroundStyle(item.owner == nil ? .orange : .primary)
+                        }
+                        .fixedSize()
+                        .help(item.owner != nil && item.ownerId == nil
+                              ? "\(item.owner!) no está registrado en el equipo; agrégalo (o como alias) para ligarlo"
+                              : "Cambiar responsable")
                     }
                     if let due = item.dueDate {
                         GridRow {
@@ -128,6 +148,12 @@ struct ItemDetailView: View {
                     GridRow {
                         Text("Prioridad").foregroundStyle(.secondary)
                         Text(item.priority == "high" ? "Alta" : item.priority == "medium" ? "Media" : "Baja")
+                    }
+                    if item.sessionId == nil {
+                        GridRow {
+                            Text("Origen").foregroundStyle(.secondary)
+                            Text("Tarea manual")
+                        }
                     }
                     if let session = item.sessionId {
                         GridRow {

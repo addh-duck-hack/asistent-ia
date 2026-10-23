@@ -102,6 +102,51 @@ struct APIClient: Sendable {
         return try await request("/api/projects/\(projectId)/digests", method: "POST", body: Body(), as: WeeklyDigest.self)
     }
 
+    // MARK: Equipo
+
+    func people() async throws -> [TeamMember] {
+        try await request("/api/people", as: [TeamMember].self)
+    }
+
+    func createPerson(_ body: PersonRequest) async throws -> TeamMember {
+        try await request("/api/people", method: "POST", body: body, as: TeamMember.self)
+    }
+
+    func updatePerson(id: String, _ body: PersonRequest) async throws -> TeamMember {
+        try await request("/api/people/\(id)", method: "PATCH", body: body, as: TeamMember.self)
+    }
+
+    func personItems(personId: String, statuses: [ItemStatus]) async throws -> [TrackedItem] {
+        var q = URLComponents()
+        q.queryItems = [
+            URLQueryItem(name: "ownerId", value: personId),
+            URLQueryItem(name: "status", value: statuses.map(\.rawValue).joined(separator: ",")),
+        ]
+        return try await request("/api/action-items?\(q.percentEncodedQuery ?? "")", as: [TrackedItem].self)
+    }
+
+    func progress(personId: String) async throws -> PersonProgress {
+        try await request("/api/people/\(personId)/progress", as: PersonProgress.self)
+    }
+
+    func mentions(personId: String) async throws -> [Mention] {
+        try await request("/api/people/\(personId)/mentions", as: [Mention].self)
+    }
+
+    func oneOnOnes(personId: String) async throws -> [OneOnOnePrep] {
+        try await request("/api/people/\(personId)/one-on-ones", as: [OneOnOnePrep].self)
+    }
+
+    func generateOneOnOne(personId: String) async throws -> OneOnOnePrep {
+        struct Body: Encodable { let days = 14 }
+        return try await request("/api/people/\(personId)/one-on-ones", method: "POST", body: Body(), as: OneOnOnePrep.self)
+    }
+
+    func createActionItem(_ body: NewTaskRequest) async throws {
+        struct Ignored: Decodable {}
+        _ = try await request("/api/action-items", method: "POST", body: body, as: Ignored.self)
+    }
+
     func analysisProfiles() async throws -> [AnalysisProfile] {
         try await request("/api/analysis-profiles", as: [AnalysisProfile].self)
     }

@@ -24,7 +24,56 @@ final class AppStore {
     var selectedDigestId: String?
     var generatingDigest = false
 
-    var selectedItem: TrackedItem? { items.first { $0.id == selectedItemId } }
+    // MARK: Equipo
+
+    /// Elemento elegido en la barra lateral: un proyecto o una persona.
+    enum SidebarItem: Hashable {
+        case project(String)
+        case person(String)
+    }
+
+    enum PersonTab: String, CaseIterable, Identifiable {
+        case items = "Pendientes", progress = "Avance", mentions = "Menciones", oneOnOne = "1:1"
+        var id: String { rawValue }
+    }
+
+    var people: [TeamMember] = []
+    var selectedPersonId: String?
+    var personTab: PersonTab = .items
+    var personItems: [TrackedItem] = []
+    var progress: PersonProgress?
+    var mentions: [Mention] = []
+    var oneOnOnes: [OneOnOnePrep] = []
+    var selectedOneOnOneId: String?
+    var preparingOneOnOne = false
+
+    var selectedPerson: TeamMember? { people.first { $0.id == selectedPersonId } }
+    var selectedOneOnOne: OneOnOnePrep? { oneOnOnes.first { $0.id == selectedOneOnOneId } }
+
+    var sidebar: SidebarItem? {
+        get {
+            if let selectedPersonId { return .person(selectedPersonId) }
+            return selectedProjectId.map { .project($0) }
+        }
+        set {
+            switch newValue {
+            case let .project(id):
+                selectedPersonId = nil
+                selectedProjectId = id
+            case let .person(id):
+                selectedPersonId = id
+            case nil:
+                break
+            }
+        }
+    }
+
+    /// El pendiente elegido, venga de la vista del proyecto o de la ficha de la persona.
+    var selectedItem: TrackedItem? {
+        guard let id = selectedItemId else { return nil }
+        let progressItems = progress.map { $0.completed + $0.assigned + $0.stalled + $0.blocked + $0.overdue } ?? []
+        return (items + personItems + progressItems).first { $0.id == id }
+    }
     var selectedDigest: WeeklyDigest? { digests.first { $0.id == selectedDigestId } }
     var errorMessage: String?
 
@@ -43,6 +92,68 @@ final class AppStore {
             projects = try await api.projects()
             if selectedProjectId == nil { selectedProjectId = projects.first?.id }
         }
+        await loadPeople()
+    }
+
+    func loadPeople() async {
+        await run { people = try await api.people() }
+    }
+
+    /// Crea o edita una persona. Devuelve false (y deja el mensaje en errorMessage) si falla,
+    /// por ejemplo si un alias ya es de otra persona.
+    func savePerson(id: String?, _ body: PersonRequest) async -> Bool {
+        let ok = await run {
+            let saved = if let id { try await api.updatePerson(id: id, body) } else { try await api.createPerson(body) }
+            if saved.active != false { selectedPersonId = saved.id }
+        }
+        if ok {
+            await loadPeople()
+            if body.active == false { selectedPersonId = nil }
+        }
+        return ok
+    }
+
+    func loadPersonTab() async {
+        guard let id = selectedPersonId else { return }
+        switch personTab {
+        case .items:
+            let statuses: [ItemStatus] = showDoneItems ? ItemStatus.allCases : [.open, .inProgress, .blocked]
+            await run { personItems = try await api.personItems(personId: id, statuses: statuses) }
+        case .progress:
+            await run { progress = try await api.progress(personId: id) }
+        case .mentions:
+            await run { mentions = try await api.mentions(personId: id) }
+        case .oneOnOne:
+            await run { oneOnOnes = try await api.oneOnOnes(personId: id) }
+            if selectedOneOnOneId == nil { selectedOneOnOneId = oneOnOnes.first?.id }
+        }
+    }
+
+    func prepareOneOnOne() async {
+        guard let id = selectedPersonId, !preparingOneOnOne else { return }
+        preparingOneOnOne = true
+        defer { preparingOneOnOne = false }
+        await run {
+            let prep = try await api.generateOneOnOne(personId: id)
+            oneOnOnes.insert(prep, at: 0)
+            selectedOneOnOneId = prep.id
+        }
+    }
+
+    func assign(_ item: TrackedItem, to personId: String?) async {
+        await run { try await api.updateActionItem(id: item.id, ActionItemPatch(ownerId: .some(personId))) }
+        await reloadAfterItemChange()
+    }
+
+    func createTask(_ body: NewTaskRequest) async -> Bool {
+        let ok = await run { try await api.createActionItem(body) }
+        if ok { await reloadAfterItemChange() }
+        return ok
+    }
+
+    private func reloadAfterItemChange() async {
+        if selectedPersonId != nil { await loadPersonTab() } else { await loadItems() }
+        await loadPeople() // contadores de la barra lateral
     }
 
     func createProject(name: String, description: String, context: String) async -> Bool {
@@ -72,7 +183,7 @@ final class AppStore {
 
     func update(_ item: TrackedItem, status: ItemStatus? = nil, note: String? = nil) async {
         await run { try await api.updateActionItem(id: item.id, ActionItemPatch(status: status, note: note)) }
-        await loadItems()
+        await reloadAfterItemChange()
     }
 
     func loadDigests() async {
@@ -94,6 +205,7 @@ final class AppStore {
 
     /// Abre una sesión concreta (por ejemplo, recién grabada).
     func show(sessionId: String, projectId: String?) async {
+        selectedPersonId = nil
         if let projectId, projectId != selectedProjectId {
             selectedProjectId = projectId
         }

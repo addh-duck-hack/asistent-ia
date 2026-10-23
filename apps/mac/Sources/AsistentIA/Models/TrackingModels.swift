@@ -48,9 +48,12 @@ struct TrackedItem: Codable, Identifiable, Hashable {
     let sessionId: SessionRef?
     let history: [HistoryEntry]
     let createdAt: Date
+    /// "manual" si se creó a mano (sin sesión de origen).
+    let source: String?
+    let ownerId: String?
 
     enum CodingKeys: String, CodingKey {
-        case id = "_id", task, owner, dueDate, priority, status, projectId, sessionId, history, createdAt
+        case id = "_id", task, owner, dueDate, priority, status, projectId, sessionId, history, createdAt, source, ownerId
     }
 
     var isOverdue: Bool {
@@ -67,17 +70,20 @@ struct TrackedItem: Codable, Identifiable, Hashable {
 struct ActionItemPatch: Encodable {
     var status: ItemStatus?
     var owner: String??
+    /// Asignar a una persona; `.some(nil)` deja el pendiente sin responsable.
+    var ownerId: String??
     var note: String?
 
-    // Solo se envían las claves presentes; `owner: .some(nil)` borra el responsable.
+    // Solo se envían las claves presentes; `.some(nil)` se envía como null.
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(status, forKey: .status)
         if let owner { try c.encode(owner, forKey: .owner) }
+        if let ownerId { try c.encode(ownerId, forKey: .ownerId) }
         try c.encodeIfPresent(note, forKey: .note)
     }
 
-    enum CodingKeys: String, CodingKey { case status, owner, note }
+    enum CodingKeys: String, CodingKey { case status, owner, ownerId, note }
 }
 
 struct DigestResult: Codable {
