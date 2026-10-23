@@ -21,18 +21,53 @@ struct ContentView: View {
                     .help("Grabar reunión")
             }
         } content: {
-            SessionListView()
-                .navigationSplitViewColumnWidth(min: 260, ideal: 320)
-                .toolbar {
-                    Button { showNewSession = true } label: { Label("Nueva sesión", systemImage: "square.and.pencil") }
-                        .disabled(store.selectedProjectId == nil)
+            VStack(spacing: 0) {
+                Picker("Vista", selection: $store.tab) {
+                    ForEach(AppStore.ProjectTab.allCases) { Text($0.rawValue).tag($0) }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(8)
+                .disabled(store.selectedProjectId == nil)
+
+                // Ocupa todo el alto: sin esto, una pestaña vacía se centra
+                // verticalmente y arrastra el selector de pestañas al centro.
+                Group {
+                    switch store.tab {
+                    case .sessions: SessionListView()
+                    case .items: ItemsListView()
+                    case .digests: DigestListView()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .navigationSplitViewColumnWidth(min: 280, ideal: 340)
+            .toolbar {
+                Button { showNewSession = true } label: { Label("Nueva sesión", systemImage: "square.and.pencil") }
+                    .disabled(store.selectedProjectId == nil)
+            }
         } detail: {
-            if store.selectedSessionId != nil {
-                SessionDetailView()
-            } else {
-                ContentUnavailableView("Selecciona una sesión", systemImage: "text.bubble",
-                                       description: Text("O crea una nueva pegando una transcripción."))
+            switch store.tab {
+            case .sessions:
+                if store.selectedSessionId != nil {
+                    SessionDetailView()
+                } else {
+                    ContentUnavailableView("Selecciona una sesión", systemImage: "text.bubble",
+                                           description: Text("O crea una nueva pegando una transcripción."))
+                }
+            case .items:
+                if let item = store.selectedItem {
+                    ItemDetailView(item: item).id(item.id)
+                } else {
+                    ContentUnavailableView("Selecciona un pendiente", systemImage: "checklist",
+                                           description: Text("Clic derecho en un pendiente para cambiar su estado."))
+                }
+            case .digests:
+                if let digest = store.selectedDigest {
+                    DigestDetailView(digest: digest)
+                } else {
+                    ContentUnavailableView("Sin resumen seleccionado", systemImage: "calendar")
+                }
             }
         }
         .sheet(isPresented: $showNewProject) { NewProjectSheet() }
@@ -51,7 +86,12 @@ struct ContentView: View {
         .task { await store.loadProjects() }
         .onChange(of: store.selectedProjectId) {
             store.selectedSessionId = nil
-            Task { await store.loadSessions() }
+            store.selectedItemId = nil
+            store.selectedDigestId = nil
+            Task { await store.loadTab() }
+        }
+        .onChange(of: store.tab) {
+            Task { await store.loadTab() }
         }
         .onChange(of: store.selectedSessionId) {
             Task { await store.loadDetail() }

@@ -10,6 +10,8 @@ const Env = z.object({
   MONGO_URL: z.string().min(1, "Falta MONGO_URL"),
   API_TOKEN: z.string().min(32, "API_TOKEN debe tener al menos 32 caracteres"),
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Nombre del líder (la pista "Yo" de las grabaciones) para asignarle sus tareas.
+  LEADER_NAME: z.string().trim().default(""),
   // Solo para llaves de organización que no están ligadas a un workspace.
   ANTHROPIC_WORKSPACE_ID: z.string().optional(),
   ENCRYPTION_KEY: z.string().optional(),

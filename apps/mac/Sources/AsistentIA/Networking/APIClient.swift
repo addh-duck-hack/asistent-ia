@@ -4,12 +4,14 @@ enum APIError: LocalizedError {
     case notConfigured
     case unauthorized
     case http(Int, String)
+    case message(String)
 
     var errorDescription: String? {
         switch self {
         case .notConfigured: "Configura la URL del backend y el token en Ajustes."
         case .unauthorized: "Token inválido. Revisa el token en Ajustes."
         case let .http(code, body): "Error \(code) del backend: \(body)"
+        case let .message(text): text
         }
     }
 }
@@ -79,6 +81,27 @@ struct APIClient: Sendable {
         return try await request("/api/sessions/\(sessionId)/reanalyze", method: "POST", body: Body(depth: depth), as: Session.self)
     }
 
+    func actionItems(projectId: String?, statuses: [ItemStatus]) async throws -> [TrackedItem] {
+        var q = URLComponents()
+        q.queryItems = [URLQueryItem(name: "status", value: statuses.map(\.rawValue).joined(separator: ","))]
+        if let projectId { q.queryItems?.append(URLQueryItem(name: "projectId", value: projectId)) }
+        return try await request("/api/action-items?\(q.percentEncodedQuery ?? "")", as: [TrackedItem].self)
+    }
+
+    func updateActionItem(id: String, _ patch: ActionItemPatch) async throws {
+        struct Ignored: Decodable {}
+        _ = try await request("/api/action-items/\(id)", method: "PATCH", body: patch, as: Ignored.self)
+    }
+
+    func digests(projectId: String) async throws -> [WeeklyDigest] {
+        try await request("/api/projects/\(projectId)/digests", as: [WeeklyDigest].self)
+    }
+
+    func generateDigest(projectId: String) async throws -> WeeklyDigest {
+        struct Body: Encodable { let days = 7 }
+        return try await request("/api/projects/\(projectId)/digests", method: "POST", body: Body(), as: WeeklyDigest.self)
+    }
+
     func analysisProfiles() async throws -> [AnalysisProfile] {
         try await request("/api/analysis-profiles", as: [AnalysisProfile].self)
     }
@@ -97,7 +120,7 @@ struct APIClient: Sendable {
         guard let url = URL(string: AppSettings.baseURL + path) else { throw APIError.notConfigured }
         var req = URLRequest(url: url)
         req.httpMethod = method
-        req.timeoutInterval = 60
+        req.timeoutInterval = 180
         if authorized {
             guard let token = Keychain.read(AppSettings.tokenAccount), !token.isEmpty else { throw APIError.notConfigured }
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -110,10 +133,18 @@ struct APIClient: Sendable {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 401 { throw APIError.unauthorized }
         guard (200..<300).contains(status) else {
+            // Si el backend manda {"message": "..."}, se muestra ese texto.
+            if let body = try? JSONDecoder().decode(BackendErrorBody.self, from: data) {
+                throw APIError.message(body.message)
+            }
             throw APIError.http(status, String(decoding: data.prefix(500), as: UTF8.self))
         }
         return try Self.decoder.decode(T.self, from: data)
     }
+}
+
+private struct BackendErrorBody: Decodable {
+    let message: String
 }
 
 extension ISO8601DateFormatter {

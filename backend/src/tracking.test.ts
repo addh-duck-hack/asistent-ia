@@ -67,7 +67,7 @@ const analyzer = (r: Analysis) =>
       depth: input.depth,
       model: "claude-sonnet-5-5",
       effort: "medium",
-      promptVersion: "analysis-v3",
+      promptVersion: "analysis-v4",
       usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUsd: 0 },
     }),
   );

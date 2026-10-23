@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { Analysis, type AnalysisDepth } from "@asistent-ia/schema";
+import { config } from "../config.js";
 import { getClaude } from "./client.js";
 import { estimateCostUsd } from "./pricing.js";
 import { getProfile, type AnalysisProfile, type Effort } from "./profiles.js";
@@ -102,6 +103,7 @@ export function buildAnalysisRequest(input: AnalyzeInput, profile: AnalysisProfi
     `Tipo: ${SESSION_TYPE_LABELS[session.type] ?? session.type}`,
     `Título: ${session.title}`,
     `Fecha: ${session.date.toISOString().slice(0, 10)}`,
+    `Líder (pista "Yo"): ${config.LEADER_NAME || "el líder"}`,
     session.participants.length > 0 && `Participantes: ${session.participants.join(", ")}`,
     DEPTH_INSTRUCTIONS[input.depth],
     "</sesion>",

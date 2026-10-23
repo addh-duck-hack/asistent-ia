@@ -62,6 +62,7 @@ describe("buildAnalysisRequest", () => {
     expect(project!.text).not.toContain("Migrar la base");
     expect(session!.text).toContain("[abc123] Migrar la base (responsable: Carlos)");
     expect(session!.text).toContain("Fecha: 2026-10-22");
+    expect(session!.text).toContain('Líder (pista "Yo"): el líder');
   });
 
   it("el bloque del proyecto no cambia entre sesiones distintas (caché)", () => {

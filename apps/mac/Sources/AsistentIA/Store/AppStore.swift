@@ -10,6 +10,22 @@ final class AppStore {
     var selectedSessionId: String?
     var detail: SessionDetail?
     var profiles: [AnalysisProfile] = []
+
+    enum ProjectTab: String, CaseIterable, Identifiable {
+        case sessions = "Sesiones", items = "Pendientes", digests = "Resumen semanal"
+        var id: String { rawValue }
+    }
+
+    var tab: ProjectTab = .sessions
+    var items: [TrackedItem] = []
+    var showDoneItems = false
+    var selectedItemId: String?
+    var digests: [WeeklyDigest] = []
+    var selectedDigestId: String?
+    var generatingDigest = false
+
+    var selectedItem: TrackedItem? { items.first { $0.id == selectedItemId } }
+    var selectedDigest: WeeklyDigest? { digests.first { $0.id == selectedDigestId } }
     var errorMessage: String?
 
     private let api = APIClient()
@@ -38,11 +54,50 @@ final class AppStore {
         }
     }
 
+    /// Recarga lo que muestra la pestaña actual del proyecto.
+    func loadTab() async {
+        switch tab {
+        case .sessions: await loadSessions()
+        case .items: await loadItems()
+        case .digests: await loadDigests()
+        }
+    }
+
+    func loadItems() async {
+        guard let projectId = selectedProjectId else { items = []; return }
+        let statuses: [ItemStatus] = showDoneItems ? ItemStatus.allCases : [.open, .inProgress, .blocked]
+        await run { items = try await api.actionItems(projectId: projectId, statuses: statuses) }
+        if let id = selectedItemId, !items.contains(where: { $0.id == id }) { selectedItemId = nil }
+    }
+
+    func update(_ item: TrackedItem, status: ItemStatus? = nil, note: String? = nil) async {
+        await run { try await api.updateActionItem(id: item.id, ActionItemPatch(status: status, note: note)) }
+        await loadItems()
+    }
+
+    func loadDigests() async {
+        guard let projectId = selectedProjectId else { digests = []; return }
+        await run { digests = try await api.digests(projectId: projectId) }
+        if selectedDigestId == nil { selectedDigestId = digests.first?.id }
+    }
+
+    func generateDigest() async {
+        guard let projectId = selectedProjectId, !generatingDigest else { return }
+        generatingDigest = true
+        defer { generatingDigest = false }
+        await run {
+            let digest = try await api.generateDigest(projectId: projectId)
+            digests.insert(digest, at: 0)
+            selectedDigestId = digest.id
+        }
+    }
+
     /// Abre una sesión concreta (por ejemplo, recién grabada).
     func show(sessionId: String, projectId: String?) async {
         if let projectId, projectId != selectedProjectId {
             selectedProjectId = projectId
         }
+        tab = .sessions
         await loadSessions()
         selectedSessionId = sessionId
         await loadDetail()

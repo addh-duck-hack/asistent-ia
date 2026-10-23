@@ -79,3 +79,43 @@ private let sessionDetailJSON = """
     #expect(list.first?.status == .failed)
     #expect(list.first?.error == "Claude rechazó")
 }
+
+@Test func decodesTrackedItemsAndDigest() throws {
+    let items = """
+    [{"_id": "i1", "task": "Tests de pagos", "owner": null, "dueDate": "2026-01-02T00:00:00.000Z",
+      "priority": "high", "status": "blocked",
+      "projectId": {"_id": "p1", "name": "Portal"},
+      "sessionId": {"_id": "s1", "title": "Daily", "date": "2026-01-01T15:00:00.000Z"},
+      "history": [{"sessionId": "s2", "status": "blocked", "note": "Sin acceso", "at": "2026-01-01T16:00:00.000Z"},
+                  {"status": "open", "note": "Actualizado manualmente", "at": "2026-01-01T17:00:00.000Z"}],
+      "createdAt": "2026-01-01T15:01:00.000Z"}]
+    """
+    let item = try #require(try APIClient.decoder.decode([TrackedItem].self, from: Data(items.utf8)).first)
+    #expect(item.status == .blocked)
+    #expect(item.isOverdue)
+    #expect(item.needsAttention)
+    #expect(item.sessionId?.title == "Daily")
+    #expect(item.history.count == 2)
+
+    let digest = """
+    {"_id": "d1", "periodStart": "2026-10-19T14:00:00.000Z", "periodEnd": "2026-10-26T14:00:00.000Z",
+     "sessionCount": 3, "source": "scheduled", "model": "claude-sonnet-5-5",
+     "result": {"summary": "Bien.", "highlights": ["A"], "decisions": [{"decision": "D", "session": "Planning"}],
+                "completed": [], "attention": [{"task": "T", "owner": null, "reason": "Vencido"}],
+                "risks": [{"description": "R", "severity": "high"}], "next_week_focus": ["F"]},
+     "usage": {"inputTokens": 3000, "outputTokens": 800, "costUsd": 0.007},
+     "createdAt": "2026-10-26T14:05:00.000Z"}
+    """
+    let d = try APIClient.decoder.decode(WeeklyDigest.self, from: Data(digest.utf8))
+    #expect(d.result.nextWeekFocus == ["F"])
+    #expect(d.result.attention.first?.owner == nil)
+    #expect(d.usage?.costUsd == 0.007)
+}
+
+@Test func encodesActionItemPatchOnlyWithPresentKeys() throws {
+    let json = try #require(try JSONSerialization.jsonObject(
+        with: APIClient.encoder.encode(ActionItemPatch(status: .done, note: "ok"))) as? [String: Any])
+    #expect(json["status"] as? String == "done")
+    #expect(json["note"] as? String == "ok")
+    #expect(json["owner"] == nil)
+}
