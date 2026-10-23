@@ -5,6 +5,8 @@ import { requireToken } from "./middleware/auth.js";
 import { projectsRouter } from "./routes/projects.js";
 import { peopleRouter } from "./routes/people.js";
 import { sessionsRouter } from "./routes/sessions.js";
+import { actionItemsRouter } from "./routes/actionItems.js";
+import { digestsRouter } from "./routes/digests.js";
 import { ALL_DEPTHS, getProfile } from "./llm/profiles.js";
 
 export function createApp() {
@@ -24,6 +26,8 @@ export function createApp() {
   app.use("/api/projects", projectsRouter);
   app.use("/api/people", peopleRouter);
   app.use("/api/sessions", sessionsRouter);
+  app.use("/api/action-items", actionItemsRouter);
+  app.use("/api/projects/:projectId/digests", digestsRouter);
   // La app muestra qué modelo usa cada nivel (configurable en backend/.env).
   app.get("/api/analysis-profiles", (_req, res) => {
     res.json(ALL_DEPTHS.map(getProfile));

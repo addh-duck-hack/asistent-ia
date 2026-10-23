@@ -6,6 +6,8 @@ import {
   SessionModel,
   TranscriptModel,
 } from "../models/index.js";
+import type { Types } from "mongoose";
+import type { Analysis } from "@asistent-ia/schema";
 import { analyzeTranscript, type AnalyzeInput, type AnalyzeOutput } from "../llm/analyze.js";
 
 type Analyzer = (input: AnalyzeInput) => Promise<AnalyzeOutput>;
@@ -37,6 +39,32 @@ function parseDueDate(value: string | null): Date | undefined {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
   const d = new Date(`${value}T00:00:00Z`);
   return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+const FOLLOWUP_STATUS = { done: "done", in_progress: "in_progress", blocked: "blocked" } as const;
+
+/**
+ * Aplica lo que Claude detectó sobre pendientes de sesiones anteriores: cambia
+ * su estado y deja una nota en el historial. Solo acepta ids que se le pasaron
+ * como contexto (ignora ids inventados) y omite los "not_discussed".
+ */
+export async function applyFollowups(
+  sessionId: Types.ObjectId,
+  followups: Analysis["followups_from_previous"],
+  allowedIds: Set<string>,
+) {
+  for (const f of followups) {
+    if (f.status === "not_discussed" || !allowedIds.has(f.action_item_id)) continue;
+    // Idempotente al re-analizar: reemplaza la nota previa de esta misma sesión.
+    await ActionItemModel.updateOne({ _id: f.action_item_id }, { $pull: { history: { sessionId } } });
+    await ActionItemModel.updateOne(
+      { _id: f.action_item_id },
+      {
+        $set: { status: FOLLOWUP_STATUS[f.status] },
+        $push: { history: { sessionId, status: FOLLOWUP_STATUS[f.status], note: f.note, at: new Date() } },
+      },
+    );
+  }
 }
 
 export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = analyzeTranscript) {
@@ -97,6 +125,8 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
       promptVersion: output.promptVersion,
       usage: output.usage,
     });
+
+    await applyFollowups(session._id, result.followups_from_previous, new Set(openItems.map((i) => String(i._id))));
 
     // Al re-analizar, se reemplazan los pendientes que esta sesión creó y que
     // nadie ha tocado todavía.

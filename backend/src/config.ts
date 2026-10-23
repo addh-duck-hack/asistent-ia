@@ -29,6 +29,8 @@ const Env = z.object({
   ANALYSIS_STANDARD_EFFORT: Effort.default("medium"),
   ANALYSIS_DEEP_MODEL: z.string().default("claude-opus-5-5"),
   ANALYSIS_DEEP_EFFORT: Effort.default("high"),
+  // Zona horaria del resumen semanal (lunes 8:00).
+  DIGEST_TIMEZONE: z.string().default("America/Mexico_City"),
   SCHEDULER_ENABLED: z
     .string()
     .optional()

@@ -5,6 +5,7 @@ import { agenda } from "./jobs/agenda.js";
 import { ANALYZE_SESSION_JOB, type AnalyzeSessionJobData } from "./jobs/queue.js";
 import { runAnalyzeSession } from "./jobs/analyzeSession.js";
 import { NonRetryableAnalysisError } from "./llm/analyze.js";
+import { POLL_DIGEST_BATCHES_JOB, WEEKLY_DIGEST_JOB, pollDigestBatches, runWeeklyDigest } from "./jobs/digest.js";
 
 await connectMongo();
 
@@ -24,14 +25,20 @@ agenda.define<AnalyzeSessionJobData>(
   },
 );
 
-// Fase 3: agenda.define("weekly-digest", ...)
+agenda.define(WEEKLY_DIGEST_JOB, async () => {
+  await runWeeklyDigest();
+});
+agenda.define(POLL_DIGEST_BATCHES_JOB, async () => {
+  await pollDigestBatches();
+});
 
 await agenda.start();
 console.log("[worker] agenda iniciada");
 
 if (config.SCHEDULER_ENABLED) {
-  // Fase 3: await agenda.every("0 8 * * 1", "weekly-digest");
-  console.log("[worker] tareas programadas habilitadas");
+  await agenda.every("0 8 * * 1", WEEKLY_DIGEST_JOB, undefined, { timezone: config.DIGEST_TIMEZONE, skipImmediate: true });
+  await agenda.every("5 minutes", POLL_DIGEST_BATCHES_JOB);
+  console.log(`[worker] tareas programadas: resumen semanal lunes 8:00 (${config.DIGEST_TIMEZONE})`);
 }
 
 async function shutdown() {

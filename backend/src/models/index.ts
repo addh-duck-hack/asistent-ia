@@ -5,3 +5,5 @@ export * from "./Transcript.js";
 export * from "./Analysis.js";
 export * from "./ActionItem.js";
 export * from "./IntegrationToken.js";
+export * from "./Digest.js";
+export * from "./DigestBatch.js";
