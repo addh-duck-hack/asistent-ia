@@ -35,8 +35,9 @@ struct SessionDetailView: View {
                     EmptyView()
                 }
 
-                if let result = detail.analysis?.result {
-                    AnalysisSections(result: result)
+                if let analysis = detail.analysis {
+                    AnalysisMeta(analysis: analysis)
+                    AnalysisSections(result: analysis.result)
                 }
 
                 if let transcript = detail.transcript {
@@ -53,12 +54,22 @@ struct SessionDetailView: View {
             .frame(maxWidth: 860, alignment: .leading)
         }
         .toolbar {
-            Button {
-                Task { await store.reanalyze() }
+            Menu {
+                ForEach(AnalysisDepth.allCases) { depth in
+                    Button {
+                        Task { await store.reanalyze(depth: depth) }
+                    } label: {
+                        let model = store.profile(for: depth).map { " (\($0.modelName))" } ?? ""
+                        Text("\(depth.label)\(model)\(depth == session.depth ? " — actual" : "")")
+                    }
+                }
             } label: {
                 Label("Re-analizar", systemImage: "arrow.clockwise")
+            } primaryAction: {
+                Task { await store.reanalyze() }
             }
             .disabled(session.status.isInProgress)
+            .help("Clic: mismo nivel · Flecha: elegir otro nivel")
         }
     }
 
@@ -148,11 +159,13 @@ private struct AnalysisSections: View {
                 }
             }
 
-            DisclosureGroup("Resumen detallado") {
-                Text(result.summary.detailed)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 6)
+            if let detailed = result.summary.detailed {
+                DisclosureGroup("Resumen detallado") {
+                    Text(detailed)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 6)
+                }
             }
         }
     }
@@ -173,6 +186,24 @@ private struct AnalysisSections: View {
                 }
             }
         }
+    }
+}
+
+/// Nivel, modelo, effort, tokens y costo estimado del análisis.
+private struct AnalysisMeta: View {
+    let analysis: Analysis
+
+    var body: some View {
+        let parts: [String] = [
+            analysis.depth?.label,
+            ModelName.pretty(analysis.model),
+            analysis.effort.map { "effort \($0)" },
+            analysis.usage.map { "\($0.totalTokens.formatted()) tokens" },
+            analysis.usage?.costUsd.map { "≈ \(Money.usd($0))" },
+        ].compactMap { $0 }
+        Label(parts.joined(separator: " · "), systemImage: "cpu")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 }
 

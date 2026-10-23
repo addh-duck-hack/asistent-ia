@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { Analysis } from "@asistent-ia/schema";
+import { Analysis, type AnalysisDepth } from "@asistent-ia/schema";
 import { getClaude } from "./client.js";
-import { ANALYSIS_PROMPT_VERSION, ANALYSIS_SYSTEM_PROMPT } from "./prompts/analysis.js";
-
-export const ANALYSIS_MODEL = "claude-opus-5-5";
+import { estimateCostUsd } from "./pricing.js";
+import { getProfile, type AnalysisProfile, type Effort } from "./profiles.js";
+import { ANALYSIS_PROMPT_VERSION, ANALYSIS_SYSTEM_PROMPT, DEPTH_INSTRUCTIONS } from "./prompts/analysis.js";
 
 export interface TranscriptSegmentInput {
   startSec?: number | null;
@@ -13,6 +13,7 @@ export interface TranscriptSegmentInput {
 }
 
 export interface AnalyzeInput {
+  depth: AnalysisDepth;
   project: { name: string; description: string; context: string; members: string[] };
   session: { type: string; title: string; date: Date; participants: string[] };
   transcript: { text: string; segments: TranscriptSegmentInput[] };
@@ -21,13 +22,17 @@ export interface AnalyzeInput {
 
 export interface AnalyzeOutput {
   result: Analysis;
+  depth: AnalysisDepth;
+  /** Modelo que respondió (puede ser el de respaldo si actuó el fallback). */
   model: string;
+  effort: Effort;
   promptVersion: string;
   usage: {
     inputTokens: number;
     outputTokens: number;
     cacheReadInputTokens: number;
     cacheCreationInputTokens: number;
+    costUsd: number | null;
   };
 }
 
@@ -64,7 +69,12 @@ const SESSION_TYPE_LABELS: Record<string, string> = {
   pasted: "Texto pegado o importado",
 };
 
-export function buildAnalysisRequest(input: AnalyzeInput) {
+// Haiku no tiene fallback del lado del servidor; Sonnet 5.5 y Opus sí.
+function supportsServerFallback(model: string): boolean {
+  return !model.startsWith("claude-haiku");
+}
+
+export function buildAnalysisRequest(input: AnalyzeInput, profile: AnalysisProfile = getProfile(input.depth)) {
   const { project, session, transcript, openItems } = input;
 
   // Bloque estable por proyecto: va antes de lo variable para que el prefijo
@@ -93,6 +103,7 @@ export function buildAnalysisRequest(input: AnalyzeInput) {
     `Título: ${session.title}`,
     `Fecha: ${session.date.toISOString().slice(0, 10)}`,
     session.participants.length > 0 && `Participantes: ${session.participants.join(", ")}`,
+    DEPTH_INSTRUCTIONS[input.depth],
     "</sesion>",
     "",
     "<pendientes_abiertos>",
@@ -109,15 +120,16 @@ export function buildAnalysisRequest(input: AnalyzeInput) {
     .join("\n");
 
   return {
-    model: ANALYSIS_MODEL,
+    model: profile.model,
+    // Tope de seguridad, no un ajuste de costo: solo se cobra lo generado.
     max_tokens: 64000,
     thinking: { type: "adaptive" as const },
-    // En Opus 5.5 el default es "medium"; el análisis merece "high".
-    output_config: { effort: "high" as const, format: betaZodOutputFormat(Analysis) },
+    output_config: { effort: profile.effort, format: betaZodOutputFormat(Analysis) },
     // Si los clasificadores rechazan la petición, la API la reintenta en el
     // modelo de respaldo recomendado según la categoría del rechazo.
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default" as const,
+    ...(supportsServerFallback(profile.model)
+      ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
+      : {}),
     system: [
       { type: "text" as const, text: ANALYSIS_SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
     ],
@@ -136,11 +148,12 @@ export function buildAnalysisRequest(input: AnalyzeInput) {
 export async function analyzeTranscript(
   input: AnalyzeInput,
   client: Anthropic = getClaude(),
+  profile: AnalysisProfile = getProfile(input.depth),
 ): Promise<AnalyzeOutput> {
   let message;
   try {
     // Streaming: una respuesta larga no choca con el timeout HTTP del SDK.
-    message = await client.beta.messages.stream(buildAnalysisRequest(input)).finalMessage();
+    message = await client.beta.messages.stream(buildAnalysisRequest(input, profile)).finalMessage();
   } catch (err) {
     if (
       err instanceof Anthropic.BadRequestError ||
@@ -164,15 +177,18 @@ export async function analyzeTranscript(
     throw new Error("Claude no devolvió un análisis válido para el esquema");
   }
 
+  const tokens = {
+    inputTokens: message.usage.input_tokens,
+    outputTokens: message.usage.output_tokens,
+    cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
+    cacheCreationInputTokens: message.usage.cache_creation_input_tokens ?? 0,
+  };
   return {
     result: message.parsed_output,
+    depth: input.depth,
     model: message.model,
+    effort: profile.effort,
     promptVersion: ANALYSIS_PROMPT_VERSION,
-    usage: {
-      inputTokens: message.usage.input_tokens,
-      outputTokens: message.usage.output_tokens,
-      cacheReadInputTokens: message.usage.cache_read_input_tokens ?? 0,
-      cacheCreationInputTokens: message.usage.cache_creation_input_tokens ?? 0,
-    },
+    usage: { ...tokens, costUsd: estimateCostUsd(message.model, tokens) },
   };
 }

@@ -7,13 +7,17 @@ const analysisSchema = new Schema(
     result: { type: Schema.Types.Mixed, required: true },
     // Copia del resumen ejecutivo para el índice de texto.
     summaryText: { type: String, default: "" },
+    depth: { type: String },
     model: { type: String, required: true },
+    effort: { type: String },
     promptVersion: { type: String, required: true },
     usage: {
       inputTokens: Number,
       outputTokens: Number,
       cacheReadInputTokens: Number,
       cacheCreationInputTokens: Number,
+      // Estimado con precios de lista (llm/pricing.ts).
+      costUsd: Number,
     },
   },
   { timestamps: true },

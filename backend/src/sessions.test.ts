@@ -49,7 +49,7 @@ const post = (path: string, body: unknown) =>
 
 function fakeResult(overrides: Partial<Analysis> = {}): Analysis {
   return {
-    summary: { executive: "Se acordó lanzar pagos el viernes.", detailed: "Detalle..." },
+    summary: { executive: "Se acordó lanzar pagos el viernes." },
     topics: [{ title: "Pagos", key_points: ["Endpoint listo"], timestamp: null }],
     decisions: [{ decision: "Lanzar el viernes", decided_by: "Ana", context: "QA ok" }],
     action_items: [
@@ -67,11 +67,13 @@ function fakeResult(overrides: Partial<Analysis> = {}): Analysis {
 
 const fakeAnalyzer = (result = fakeResult()) =>
   vi.fn(
-    async (_input: AnalyzeInput): Promise<AnalyzeOutput> => ({
+    async (input: AnalyzeInput): Promise<AnalyzeOutput> => ({
       result,
-      model: "claude-opus-5-5",
-      promptVersion: "analysis-v1",
-      usage: { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 800 },
+      depth: input.depth,
+      model: "claude-sonnet-5-5",
+      effort: "medium",
+      promptVersion: "analysis-v2",
+      usage: { inputTokens: 1000, outputTokens: 500, cacheReadInputTokens: 0, cacheCreationInputTokens: 800, costUsd: 0.009 },
     }),
   );
 
@@ -109,6 +111,28 @@ describe("POST /api/sessions", () => {
     const transcript = await models.TranscriptModel.findOne({ sessionId: session._id }).lean();
     expect(transcript!.segments).toHaveLength(2);
     expect(transcript!.text).toBe("Ana López: Carlos, ¿terminaste pagos?\nCarlos Ruiz: Sí, mañana escribo los tests.");
+  });
+
+  it("guarda el nivel de análisis elegido", async () => {
+    const { project } = await createProjectWithPeople();
+    const r = await post("/api/sessions", {
+      projectId: String(project._id),
+      type: "pasted",
+      title: "Cliente",
+      date: "2026-10-22",
+      depth: "deep",
+      transcript: { content: "Reunión con el cliente." },
+    });
+    expect((await r.json()).depth).toBe("deep");
+  });
+
+  it("expone los niveles con su modelo", async () => {
+    const profiles = await fetch(`${base}/api/analysis-profiles`, { headers }).then((r) => r.json());
+    expect(profiles.map((p: { depth: string; model: string }) => `${p.depth}:${p.model}`)).toEqual([
+      "quick:claude-haiku-5-5",
+      "standard:claude-sonnet-5-5",
+      "deep:claude-opus-5-5",
+    ]);
   });
 
   it("acepta texto plano", async () => {
@@ -156,6 +180,7 @@ describe("runAnalyzeSession", () => {
     await runAnalyzeSession(sessionId, analyze);
 
     const input = analyze.mock.calls[0]![0];
+    expect(input.depth).toBe("standard");
     expect(input.project).toMatchObject({ name: "Portal", context: "Pagos con Stripe", members: ["Carlos Ruiz"] });
     expect(input.transcript.segments[0]).toMatchObject({ speaker: "Ana López" });
 
@@ -163,6 +188,8 @@ describe("runAnalyzeSession", () => {
     expect(detail.session.status).toBe("done");
     expect(detail.analysis.summaryText).toBe("Se acordó lanzar pagos el viernes.");
     expect(detail.analysis.usage.cacheCreationInputTokens).toBe(800);
+    expect(detail.analysis).toMatchObject({ depth: "standard", model: "claude-sonnet-5-5", effort: "medium" });
+    expect(detail.analysis.usage.costUsd).toBe(0.009);
     expect(detail.actionItems).toHaveLength(2);
     const [tests, logs] = detail.actionItems;
     expect(tests.ownerId).toBe(String(carlos._id)); // "Carlos" → Carlos Ruiz por primer nombre
@@ -172,6 +199,7 @@ describe("runAnalyzeSession", () => {
 
     const list = await fetch(`${base}/api/projects/${detail.session.projectId}/sessions`, { headers }).then((r) => r.json());
     expect(list[0].summary).toBe("Se acordó lanzar pagos el viernes.");
+    expect(list[0].costUsd).toBe(0.009);
   });
 
   it("pasa los pendientes abiertos de otras sesiones como contexto", async () => {
@@ -207,9 +235,10 @@ describe("runAnalyzeSession", () => {
     const session = await models.SessionModel.findById(sessionId).lean();
     expect(session).toMatchObject({ status: "failed", error: "Claude rechazó el análisis (cyber)" });
 
-    const r = await post(`/api/sessions/${sessionId}/reanalyze`, {});
+    const r = await post(`/api/sessions/${sessionId}/reanalyze`, { depth: "deep" });
     expect(r.status).toBe(202);
-    expect((await r.json()).status).toBe("pending");
+    expect(await r.json()).toMatchObject({ status: "pending", depth: "deep" });
+    expect((await post(`/api/sessions/${sessionId}/reanalyze`, { depth: "turbo" })).status).toBe(400);
     expect(enqueueAnalysis).toHaveBeenCalledWith(sessionId);
   });
 });

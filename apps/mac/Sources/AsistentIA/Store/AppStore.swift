@@ -9,6 +9,7 @@ final class AppStore {
     var selectedProjectId: String?
     var selectedSessionId: String?
     var detail: SessionDetail?
+    var profiles: [AnalysisProfile] = []
     var errorMessage: String?
 
     private let api = APIClient()
@@ -16,8 +17,13 @@ final class AppStore {
 
     var selectedProject: Project? { projects.first { $0.id == selectedProjectId } }
 
+    func profile(for depth: AnalysisDepth) -> AnalysisProfile? {
+        profiles.first { $0.depth == depth }
+    }
+
     func loadProjects() async {
         await run {
+            if profiles.isEmpty { profiles = (try? await api.analysisProfiles()) ?? [] }
             projects = try await api.projects()
             if selectedProjectId == nil { selectedProjectId = projects.first?.id }
         }
@@ -45,10 +51,11 @@ final class AppStore {
         }
     }
 
-    func reanalyze() async {
+    func reanalyze(depth: AnalysisDepth? = nil) async {
         guard let id = selectedSessionId else { return }
-        await run { _ = try await api.reanalyze(sessionId: id) }
+        await run { _ = try await api.reanalyze(sessionId: id, depth: depth) }
         await loadDetail()
+        await loadSessions()
     }
 
     /// Carga el detalle y, mientras el análisis está en cola o en curso,

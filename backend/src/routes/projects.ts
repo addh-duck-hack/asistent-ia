@@ -41,8 +41,13 @@ projectsRouter.get("/:id/sessions", async (req, res) => {
   const sessions = await SessionModel.find({ projectId: req.params.id }).sort({ date: -1 }).limit(200).lean();
   const analyses = await AnalysisModel.find({ sessionId: { $in: sessions.map((s) => s._id) } })
     .sort({ createdAt: 1 })
-    .select({ sessionId: 1, summaryText: 1 })
+    .select({ sessionId: 1, summaryText: 1, "usage.costUsd": 1 })
     .lean();
-  const summaries = new Map(analyses.map((a) => [String(a.sessionId), a.summaryText]));
-  res.json(sessions.map((s) => ({ ...s, summary: summaries.get(String(s._id)) ?? null })));
+  const latest = new Map(analyses.map((a) => [String(a.sessionId), a]));
+  res.json(
+    sessions.map((s) => {
+      const a = latest.get(String(s._id));
+      return { ...s, summary: a?.summaryText ?? null, costUsd: a?.usage?.costUsd ?? null };
+    }),
+  );
 });

@@ -12,6 +12,8 @@ struct NewSessionSheet: View {
     @State private var importedFile: String?
     @State private var showImporter = false
     @State private var saving = false
+    // Recuerda el último nivel usado.
+    @AppStorage("lastAnalysisDepth") private var depth: AnalysisDepth = .standard
 
     private static let vttType = UTType(filenameExtension: "vtt") ?? .plainText
 
@@ -22,6 +24,11 @@ struct NewSessionSheet: View {
                 ForEach(SessionType.allCases) { Text($0.label).tag($0) }
             }
             DatePicker("Fecha", selection: $date)
+            Picker("Nivel de análisis", selection: $depth) {
+                ForEach(AnalysisDepth.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            Text(depthCaption).font(.caption).foregroundStyle(.secondary)
             Section {
                 TextEditor(text: $content)
                     .font(.system(.body, design: .monospaced))
@@ -62,6 +69,11 @@ struct NewSessionSheet: View {
         }
     }
 
+    private var depthCaption: String {
+        guard let p = store.profile(for: depth) else { return depth.hint }
+        return "\(depth.hint) · \(p.modelName), effort \(p.effort)"
+    }
+
     private var canSubmit: Bool {
         !title.trimmingCharacters(in: .whitespaces).isEmpty &&
             !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -88,6 +100,7 @@ struct NewSessionSheet: View {
             type: type,
             title: title.trimmingCharacters(in: .whitespaces),
             date: date,
+            depth: depth,
             transcript: .init(format: isVTT ? .vtt : .text, content: content)
         )
         Task {

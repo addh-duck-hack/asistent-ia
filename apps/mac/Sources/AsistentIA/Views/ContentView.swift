@@ -76,7 +76,12 @@ struct SessionListView: View {
                             Spacer()
                             StatusBadge(status: session.status)
                         }
-                        Text("\(session.date.formatted(date: .abbreviated, time: .omitted)) · \(session.type.label)")
+                        Text([
+                            session.date.formatted(date: .abbreviated, time: .omitted),
+                            session.type.label,
+                            session.depth?.label,
+                            session.costUsd.map { Money.usd($0) },
+                        ].compactMap { $0 }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary)
                         if let summary = session.summary {
                             Text(summary).font(.callout).lineLimit(2).foregroundStyle(.secondary)

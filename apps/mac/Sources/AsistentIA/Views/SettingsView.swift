@@ -11,12 +11,18 @@ struct SettingsView: View {
         Form {
             Section("Backend") {
                 TextField("URL", text: $baseURL)
-                SecureField("Token (API_TOKEN)", text: $token)
-                Text("El token se guarda en el llavero de macOS.").font(.caption).foregroundStyle(.secondary)
+                SecureField("Token del backend", text: $token)
+                Text("Es el API_TOKEN de backend/.env en el servidor, no la llave de Anthropic. Se guarda en el llavero de macOS.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if token.hasPrefix("sk-ant-") {
+                    Label("Esto es una llave de Anthropic: va solo en el servidor. Aquí pega el API_TOKEN.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
             HStack {
                 Button("Guardar y probar conexión") { saveAndTest() }
-                    .disabled(testing)
+                    .disabled(testing || token.hasPrefix("sk-ant-"))
                 if testing { ProgressView().controlSize(.small) }
                 if let testResult { Text(testResult).font(.callout) }
             }

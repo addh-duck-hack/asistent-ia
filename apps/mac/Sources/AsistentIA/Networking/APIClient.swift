@@ -74,8 +74,13 @@ struct APIClient: Sendable {
         try await request("/api/sessions", method: "POST", body: body, as: Session.self)
     }
 
-    func reanalyze(sessionId: String) async throws -> Session {
-        try await request("/api/sessions/\(sessionId)/reanalyze", method: "POST", as: Session.self)
+    func reanalyze(sessionId: String, depth: AnalysisDepth?) async throws -> Session {
+        struct Body: Encodable { let depth: AnalysisDepth? }
+        return try await request("/api/sessions/\(sessionId)/reanalyze", method: "POST", body: Body(depth: depth), as: Session.self)
+    }
+
+    func analysisProfiles() async throws -> [AnalysisProfile] {
+        try await request("/api/analysis-profiles", as: [AnalysisProfile].self)
     }
 
     private struct Empty: Encodable {}

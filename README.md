@@ -39,7 +39,12 @@ En **Ajustes** (⌘,) pon la URL del backend y el `API_TOKEN`; el token se guard
 4. Verificar: `curl https://asistant.duck-hack.cloud/health` → `{"ok":true}`
 
 Prueba real de Claude (sin tocar Mongo):
-`docker compose exec worker node dist/scripts/smokeAnalyze.js`
+`docker compose exec worker node dist/scripts/smokeAnalyze.js [quick|standard|deep]`
+
+Comparar modelos y costos con tus últimas sesiones (no guarda nada, ~1–2 USD):
+`docker compose exec -T worker node dist/scripts/compareProfiles.js --last 3 > comparacion.md`
+
+Modelo y effort de cada nivel de análisis: variables `ANALYSIS_*` en `backend/.env`.
 
 Actualizar: `git pull && docker compose up -d --build`. Un cambio solo en
 `backend/.env` se aplica con `docker compose up -d`.

@@ -1,5 +1,5 @@
 import { Schema, model, type InferSchemaType } from "mongoose";
-import { SessionType } from "@asistent-ia/schema";
+import { AnalysisDepth, SessionType } from "@asistent-ia/schema";
 
 const sessionSchema = new Schema(
   {
@@ -9,6 +9,7 @@ const sessionSchema = new Schema(
     date: { type: Date, required: true },
     durationSec: { type: Number },
     participants: [{ type: String }],
+    depth: { type: String, enum: AnalysisDepth.options, default: "standard" },
     status: {
       type: String,
       enum: ["pending", "analyzing", "done", "failed"],

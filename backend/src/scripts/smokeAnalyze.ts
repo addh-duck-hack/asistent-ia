@@ -1,9 +1,14 @@
 // Prueba real contra la API de Claude, sin tocar Mongo:
-//   docker compose exec worker node dist/scripts/smokeAnalyze.js
-// Corre el mismo análisis dos veces; en la segunda, cache_read debe ser > 0.
+//   docker compose exec worker node dist/scripts/smokeAnalyze.js [quick|standard|deep]
+// Corre el mismo análisis dos veces; en la segunda, cache_read debe ser > 0
+// si el prefijo fijo alcanza el mínimo cacheable del modelo.
+import { AnalysisDepth } from "@asistent-ia/schema";
 import { analyzeTranscript, type AnalyzeInput } from "../llm/analyze.js";
 
+const depth = AnalysisDepth.parse(process.argv[2] ?? "quick");
+
 const input: AnalyzeInput = {
+  depth,
   project: {
     name: "Portal de clientes",
     description: "Portal web donde los clientes consultan pedidos y pagan facturas",
@@ -30,7 +35,7 @@ for (const run of [1, 2]) {
   const started = Date.now();
   const out = await analyzeTranscript(input);
   const secs = ((Date.now() - started) / 1000).toFixed(1);
-  console.log(`\n=== Corrida ${run} (${secs}s, modelo ${out.model}) ===`);
+  console.log(`\n=== Corrida ${run} (${secs}s, ${depth}: ${out.model}/${out.effort}) ===`);
   console.log("usage:", out.usage);
   if (run === 1) console.log(JSON.stringify(out.result, null, 2));
 }

@@ -54,9 +54,10 @@ export const TeamSignals = z.object({
 });
 
 export const Analysis = z.object({
+  // Sin resumen "detallado": repetía lo que ya cubren topics y decisions y
+  // era la parte más cara de la salida.
   summary: z.object({
     executive: z.string(),
-    detailed: z.string(),
   }),
   topics: z.array(Topic),
   decisions: z.array(Decision),
@@ -73,3 +74,8 @@ export type ActionItemDraft = z.infer<typeof ActionItemDraft>;
 
 export const SessionType = z.enum(["meeting", "teams_chat", "pasted"]);
 export type SessionType = z.infer<typeof SessionType>;
+
+// Nivel de análisis elegido por sesión: define modelo, effort y extensión.
+// quick: dailies y chats · standard: 1:1 y seguimientos · deep: clientes, plannings.
+export const AnalysisDepth = z.enum(["quick", "standard", "deep"]);
+export type AnalysisDepth = z.infer<typeof AnalysisDepth>;

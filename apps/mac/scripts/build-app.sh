@@ -23,6 +23,10 @@ for arg in "$@"; do
     --install)
       # Cerrar la versión anterior si está abierta, para reemplazarla.
       osascript -e 'quit app "Asistent IA"' 2>/dev/null || true
+      for _ in {1..20}; do
+        pgrep -qf "/Applications/Asistent IA.app/Contents/MacOS" || break
+        sleep 0.5
+      done
       rm -rf "/Applications/Asistent IA.app"
       cp -R "dist/Asistent IA.app" /Applications/
       echo "Instalada en /Applications/Asistent IA.app"

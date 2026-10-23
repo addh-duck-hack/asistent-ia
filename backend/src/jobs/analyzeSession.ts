@@ -64,6 +64,7 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
     if (!project) throw new Error("El proyecto de la sesión ya no existe");
 
     const output = await analyze({
+      depth: session.depth ?? "standard",
       project: {
         name: project.name,
         description: project.description ?? "",
@@ -90,7 +91,9 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
       sessionId: session._id,
       result,
       summaryText: result.summary.executive,
+      depth: output.depth,
       model: output.model,
+      effort: output.effort,
       promptVersion: output.promptVersion,
       usage: output.usage,
     });
@@ -116,7 +119,7 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
     session.status = "done";
     await session.save();
     console.log(
-      `[analyze] ${sessionId} listo — tokens in ${output.usage.inputTokens}, out ${output.usage.outputTokens}, cache ${output.usage.cacheReadInputTokens}`,
+      `[analyze] ${sessionId} listo (${output.depth}, ${output.model}/${output.effort}) — in ${output.usage.inputTokens}, out ${output.usage.outputTokens}, cache ${output.usage.cacheReadInputTokens}, ≈ $${output.usage.costUsd ?? "?"}`,
     );
   } catch (err) {
     session.status = "failed";

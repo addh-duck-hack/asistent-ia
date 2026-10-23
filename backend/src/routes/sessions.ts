@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { SessionType } from "@asistent-ia/schema";
+import { AnalysisDepth, SessionType } from "@asistent-ia/schema";
 import {
   ActionItemModel,
   AnalysisModel,
@@ -27,6 +27,7 @@ const CreateSession = z.object({
   date: z.coerce.date(),
   durationSec: z.number().int().nonnegative().optional(),
   participants: z.array(z.string().trim().min(1)).optional(),
+  depth: AnalysisDepth.default("standard"),
   transcript: z.object({
     // text: texto plano; vtt: contenido de un .vtt; segments: lo manda la app
     // Mac tras transcribir el audio localmente.
@@ -70,6 +71,7 @@ sessionsRouter.post("/", async (req, res) => {
     date: body.date,
     durationSec: body.durationSec,
     participants: body.participants ?? speakers,
+    depth: body.depth,
   });
   await TranscriptModel.create({ sessionId: session._id, ...transcript, language: body.transcript.language });
   await enqueueAnalysis(String(session._id));
@@ -91,10 +93,14 @@ sessionsRouter.get("/:id", async (req, res) => {
   res.json({ session, transcript, analysis, actionItems });
 });
 
+// Permite re-analizar con otro nivel (por ejemplo, subir a "deep").
+const Reanalyze = z.object({ depth: AnalysisDepth.optional() });
+
 sessionsRouter.post("/:id/reanalyze", async (req, res) => {
+  const { depth } = Reanalyze.parse(req.body ?? {});
   const session = await SessionModel.findByIdAndUpdate(
     req.params.id,
-    { status: "pending", $unset: { error: 1 } },
+    { status: "pending", ...(depth ? { depth } : {}), $unset: { error: 1 } },
     { returnDocument: "after" },
   );
   if (!session) {

@@ -12,7 +12,7 @@ private let sessionDetailJSON = """
   "transcript": {"text": "Ana López: hola", "segments": [{"startSec": 1, "endSec": 2, "speaker": "Ana López", "text": "hola"}]},
   "analysis": {
     "result": {
-      "summary": {"executive": "Todo bien.", "detailed": "Detalle"},
+      "summary": {"executive": "Todo bien."},
       "topics": [{"title": "Pagos", "key_points": ["Listo"], "timestamp": null}],
       "decisions": [{"decision": "Lanzar", "decided_by": null, "context": "QA ok"}],
       "action_items": [{"task": "Tests", "owner": "Carlos", "due_date": "2026-10-24", "priority": "high"}],
@@ -21,7 +21,9 @@ private let sessionDetailJSON = """
       "followups_from_previous": [{"action_item_id": "abc", "status": "done", "note": "Hecho"}],
       "team_signals": {"workload": null, "morale": "bueno", "dependencies": []}
     },
-    "model": "claude-opus-5-5", "promptVersion": "analysis-v1", "createdAt": "2026-10-22T15:02:00.000Z"
+    "depth": "quick", "model": "claude-haiku-5-5", "effort": "low", "promptVersion": "analysis-v2",
+    "usage": {"inputTokens": 4000, "outputTokens": 900, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0, "costUsd": 0.00085},
+    "createdAt": "2026-10-22T15:02:00.000Z"
   },
   "actionItems": [{"_id": "6717a0c1f1a2b3c4d5e6f702", "task": "Tests", "owner": "Carlos",
                    "dueDate": "2026-10-24T00:00:00.000Z", "priority": "high", "status": "open"}]
@@ -39,18 +41,31 @@ private let sessionDetailJSON = """
     #expect(result.followupsFromPrevious.first?.actionItemId == "abc")
     #expect(result.teamSignals.morale == "bueno")
     #expect(detail.actionItems.first?.dueDate != nil)
+    #expect(result.summary.detailed == nil)
+    #expect(detail.analysis?.depth == .quick)
+    #expect(detail.analysis?.usage?.costUsd == 0.00085)
+    #expect(detail.analysis?.usage?.totalTokens == 4900)
+}
+
+@Test func prettyModelNames() {
+    #expect(ModelName.pretty("claude-sonnet-5-5") == "Sonnet 5.5")
+    #expect(ModelName.pretty("claude-opus-4-8") == "Opus 4.8")
+    #expect(Money.usd(0.23) == "$0.23")
+    #expect(Money.usd(0.0042) == "$0.0042")
 }
 
 @Test func encodesCreateSessionRequest() throws {
     let req = CreateSessionRequest(
         projectId: "p1", type: .meeting, title: "Daily",
         date: Date(timeIntervalSince1970: 0),
+        depth: .deep,
         transcript: .init(format: .vtt, content: "WEBVTT")
     )
     let json = try #require(try JSONSerialization.jsonObject(with: APIClient.encoder.encode(req)) as? [String: Any])
     #expect(json["projectId"] as? String == "p1")
     #expect(json["type"] as? String == "meeting")
     #expect(json["date"] as? String == "1970-01-01T00:00:00Z")
+    #expect(json["depth"] as? String == "deep")
     let transcript = try #require(json["transcript"] as? [String: Any])
     #expect(transcript["format"] as? String == "vtt")
 }

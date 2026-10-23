@@ -5,6 +5,7 @@ import { requireToken } from "./middleware/auth.js";
 import { projectsRouter } from "./routes/projects.js";
 import { peopleRouter } from "./routes/people.js";
 import { sessionsRouter } from "./routes/sessions.js";
+import { ALL_DEPTHS, getProfile } from "./llm/profiles.js";
 
 export function createApp() {
   const app = express();
@@ -23,6 +24,10 @@ export function createApp() {
   app.use("/api/projects", projectsRouter);
   app.use("/api/people", peopleRouter);
   app.use("/api/sessions", sessionsRouter);
+  // La app muestra qué modelo usa cada nivel (configurable en backend/.env).
+  app.get("/api/analysis-profiles", (_req, res) => {
+    res.json(ALL_DEPTHS.map(getProfile));
+  });
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ZodError) {

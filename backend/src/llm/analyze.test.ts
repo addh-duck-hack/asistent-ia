@@ -3,6 +3,7 @@ import { buildAnalysisRequest, formatTranscript, type AnalyzeInput } from "./ana
 import { ANALYSIS_SYSTEM_PROMPT } from "./prompts/analysis.js";
 
 const input: AnalyzeInput = {
+  depth: "deep",
   project: { name: "Portal", description: "Portal de clientes", context: "React + Node", members: ["Ana", "Carlos"] },
   session: { type: "meeting", title: "Daily", date: new Date("2026-10-22T15:00:00Z"), participants: [] },
   transcript: {
@@ -16,7 +17,31 @@ const input: AnalyzeInput = {
 };
 
 describe("buildAnalysisRequest", () => {
-  it("usa el modelo, effort, fallback y formato estructurado", () => {
+  it("cada nivel usa su modelo y effort por defecto", () => {
+    expect(buildAnalysisRequest({ ...input, depth: "quick" })).toMatchObject({
+      model: "claude-haiku-5-5",
+      output_config: { effort: "low" },
+    });
+    expect(buildAnalysisRequest({ ...input, depth: "standard" })).toMatchObject({
+      model: "claude-sonnet-5-5",
+      output_config: { effort: "medium" },
+    });
+  });
+
+  it("no manda fallback del servidor a Haiku (no lo admite)", () => {
+    const req = buildAnalysisRequest({ ...input, depth: "quick" });
+    expect(req).not.toHaveProperty("fallbacks");
+    expect(req).not.toHaveProperty("betas");
+    expect(buildAnalysisRequest({ ...input, depth: "standard" })).toMatchObject({ fallbacks: "default" });
+  });
+
+  it("incluye la instrucción del nivel en la parte variable, no en el system", () => {
+    const req = buildAnalysisRequest({ ...input, depth: "quick" });
+    expect(req.messages[0]!.content[1]!.text).toContain("Nivel de detalle: RÁPIDO");
+    expect(req.system[0]!.text).not.toContain("RÁPIDO");
+  });
+
+  it("deep usa Opus con effort high, fallback y formato estructurado", () => {
     const req = buildAnalysisRequest(input);
     expect(req.model).toBe("claude-opus-5-5");
     expect(req.thinking).toEqual({ type: "adaptive" });
