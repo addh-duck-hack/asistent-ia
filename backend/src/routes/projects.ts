@@ -4,14 +4,28 @@ import { deleteProject } from "../utils/deletion.js";
 
 export const projectsRouter = Router();
 
+/** Vocabulario limpio: sin vacíos ni repetidos (sin importar mayúsculas), máximo 100. */
+export function cleanVocabulary(list: unknown): string[] | undefined {
+  if (!Array.isArray(list)) return undefined;
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of list) {
+    const term = typeof item === "string" ? item.trim().slice(0, 60) : "";
+    if (!term || seen.has(term.toLowerCase())) continue;
+    seen.add(term.toLowerCase());
+    out.push(term);
+  }
+  return out.slice(0, 100);
+}
+
 projectsRouter.get("/", async (req, res) => {
   const filter = req.query.archived === "true" ? {} : { archived: false };
   res.json(await ProjectModel.find(filter).sort({ name: 1 }));
 });
 
 projectsRouter.post("/", async (req, res) => {
-  const { name, description, context, members } = req.body ?? {};
-  res.status(201).json(await ProjectModel.create({ name, description, context, members }));
+  const { name, description, context, members, vocabulary } = req.body ?? {};
+  res.status(201).json(await ProjectModel.create({ name, description, context, members, vocabulary: cleanVocabulary(vocabulary) }));
 });
 
 projectsRouter.get("/:id", async (req, res) => {
@@ -24,10 +38,10 @@ projectsRouter.get("/:id", async (req, res) => {
 });
 
 projectsRouter.patch("/:id", async (req, res) => {
-  const { name, description, context, members, archived } = req.body ?? {};
+  const { name, description, context, members, archived, vocabulary } = req.body ?? {};
   const project = await ProjectModel.findByIdAndUpdate(
     req.params.id,
-    { name, description, context, members, archived },
+    { name, description, context, members, archived, vocabulary: cleanVocabulary(vocabulary) },
     { returnDocument: "after", runValidators: true },
   );
   if (!project) {

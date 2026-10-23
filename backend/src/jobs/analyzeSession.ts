@@ -76,6 +76,7 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
         name: project.name,
         description: project.description ?? "",
         context: project.context ?? "",
+        vocabulary: project.vocabulary ?? [],
         members: project.members
           .filter((m) => m.active !== false)
           .map((m) => ({ name: m.name, aliases: m.aliases ?? [] })),

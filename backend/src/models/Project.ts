@@ -7,6 +7,9 @@ const projectSchema = new Schema(
     // Contexto que se le pasa a Claude en cada análisis (stack, objetivos, etc.).
     context: { type: String, default: "" },
     members: [{ type: Schema.Types.ObjectId, ref: "Person" }],
+    // Términos que la transcripción suele confundir ("Toks", "Landing"): se le
+    // dan a Whisper como pista y a Claude para escribirlos bien.
+    vocabulary: [{ type: String, trim: true }],
     archived: { type: Boolean, default: false },
   },
   { timestamps: true },

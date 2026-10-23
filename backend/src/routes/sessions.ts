@@ -159,6 +159,47 @@ sessionsRouter.patch("/:id/speakers", async (req, res) => {
   res.json({ segments, items, participants: session.participants });
 });
 
+// Buscar y reemplazar en la transcripción ("Tox" → "Toks"). Por defecto, palabra
+// completa y sin distinguir mayúsculas; "Toxico" no cambia. La app re-analiza después.
+const Replace = z.object({
+  find: z.string().trim().min(1).max(200),
+  replace: z.string().max(200),
+  wholeWord: z.boolean().default(true),
+  matchCase: z.boolean().default(false),
+});
+
+export function replacePattern(find: string, wholeWord: boolean, matchCase: boolean): RegExp {
+  const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const body = wholeWord ? `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])` : escaped;
+  return new RegExp(body, matchCase ? "gu" : "giu");
+}
+
+sessionsRouter.post("/:id/transcript/replace", async (req, res) => {
+  const body = Replace.parse(req.body ?? {});
+  const transcript = await TranscriptModel.findOne({ sessionId: req.params.id });
+  if (!transcript) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+  const pattern = replacePattern(body.find, body.wholeWord, body.matchCase);
+  const count = (s: string) => s.match(pattern)?.length ?? 0;
+  const literal = () => body.replace; // sin interpretar "$1", "$&"…
+  // Las grabaciones tienen segmentos; el texto pegado, solo `text`.
+  let replacements = 0;
+  for (const seg of transcript.segments) {
+    const n = count(seg.text);
+    if (n) {
+      replacements += n;
+      seg.text = seg.text.replace(pattern, literal);
+    }
+  }
+  const inText = count(transcript.text);
+  if (transcript.segments.length === 0) replacements = inText;
+  transcript.text = transcript.text.replace(pattern, literal);
+  if (replacements || inText) await transcript.save();
+  res.json({ replacements, transcript });
+});
+
 // Borra la sesión con su transcripción, su análisis y los pendientes que nacieron en ella.
 sessionsRouter.delete("/:id", async (req, res) => {
   if (!(await SessionModel.exists({ _id: req.params.id }))) {

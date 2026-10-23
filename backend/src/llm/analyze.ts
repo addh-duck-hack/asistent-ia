@@ -20,6 +20,8 @@ export interface AnalyzeInput {
     name: string;
     description: string;
     context: string;
+    /** Términos que la transcripción confunde; Claude los escribe así. */
+    vocabulary?: string[];
     /** Con sus alias, para que Claude reconozca "Tavo" como Octavio. */
     members: { name: string; aliases: string[] }[];
   };
@@ -93,6 +95,7 @@ export function buildAnalysisRequest(input: AnalyzeInput, profile: AnalysisProfi
     project.description && `Descripción: ${project.description}`,
     project.context && `Contexto:\n${project.context}`,
     project.members.length > 0 && `Miembros: ${project.members.map(formatMember).join(", ")}`,
+    project.vocabulary?.length && `Vocabulario: ${project.vocabulary.join(", ")}`,
     "</proyecto>",
   ]
     .filter(Boolean)

@@ -84,7 +84,7 @@ export const askTools = [
 /** Directorio de proyectos y personas, para que Claude use sus ids en las herramientas. */
 export async function buildDirectory(scope: AskInput["scope"], now = new Date()) {
   const [projects, people] = await Promise.all([
-    ProjectModel.find({ archived: { $ne: true } }).select({ name: 1, description: 1 }).sort({ name: 1 }).lean(),
+    ProjectModel.find({ archived: { $ne: true } }).select({ name: 1, description: 1, vocabulary: 1 }).sort({ name: 1 }).lean(),
     PersonModel.find({ active: { $ne: false } }).select({ name: 1, aliases: 1, role: 1 }).sort({ name: 1 }).lean(),
   ]);
   const scopeProject = scope.projectId && projects.find((p) => String(p._id) === scope.projectId);
@@ -94,7 +94,7 @@ export async function buildDirectory(scope: AskInput["scope"], now = new Date())
     `Hoy: ${now.toISOString().slice(0, 10)}`,
     `Líder: ${config.LEADER_NAME || "el líder"}`,
     "Proyectos:",
-    ...projects.map((p) => `- ${p.name} (id ${p._id})${p.description ? `: ${p.description}` : ""}`),
+    ...projects.map((p) => `- ${p.name} (id ${p._id})${p.description ? `: ${p.description}` : ""}${p.vocabulary?.length ? ` · vocabulario: ${p.vocabulary.join(", ")}` : ""}`),
     "Personas:",
     ...people.map((p) => `- ${p.name} (id ${p._id})${p.aliases?.length ? `, también: ${p.aliases.join(", ")}` : ""}${p.role ? `, ${p.role}` : ""}`),
     scopeProject ? `Alcance: la conversación es sobre el proyecto ${scopeProject.name}; limita las búsquedas a su id salvo que la pregunta pida otra cosa.` : "",

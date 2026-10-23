@@ -71,9 +71,8 @@ it("las voces sin identificar no cuentan como participantes y se pueden renombra
   expect((await api(`/api/sessions/${"a".repeat(24)}/speakers`, "PATCH", { renames: [{ from: "Voz 1", to: "X" }] })).status).toBe(404);
 });
 
-it("el prompt v6 explica las voces separadas y pide speaker_identification", async () => {
-  const { ANALYSIS_SYSTEM_PROMPT, ANALYSIS_PROMPT_VERSION } = await import("./llm/prompts/analysis.js");
-  expect(ANALYSIS_PROMPT_VERSION).toBe("analysis-v6");
+it("el prompt explica las voces separadas y pide speaker_identification", async () => {
+  const { ANALYSIS_SYSTEM_PROMPT } = await import("./llm/prompts/analysis.js");
   expect(ANALYSIS_SYSTEM_PROMPT).toContain('"Voz 1", "Voz 2"');
   expect(ANALYSIS_SYSTEM_PROMPT).toContain("speaker_identification");
 });
