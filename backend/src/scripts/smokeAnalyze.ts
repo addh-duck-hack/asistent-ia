@@ -12,7 +12,8 @@ const dailySample = process.argv[3] === "daily";
 
 // Ronda de daily como sale de una grabación: las respuestas no dicen el nombre.
 const DAILY_SEGMENTS = [
-  { startSec: 0, speaker: "me", text: "Buenos días a todos, vamos con la ronda. Octavio, buenos días, ¿qué tienes hoy?" },
+  // "Tavo" es alias de Octavio Ramírez: el owner debe salir con el nombre oficial.
+  { startSec: 0, speaker: "me", text: "Buenos días a todos, vamos con la ronda. Tavo, buenos días, ¿qué tienes hoy?" },
   { startSec: 6, speaker: "others", text: "Buenos días. Hoy voy a estar con los crash de Panda, ya tengo ubicados los dos más frecuentes." },
   { startSec: 14, speaker: "me", text: "Perfecto. Ana, ¿cómo vas con los deep links?" },
   { startSec: 18, speaker: "others", text: "Ya quedaron en iOS, en Android me falta probar, lo termino mañana." },
@@ -27,7 +28,12 @@ const input: AnalyzeInput = {
     name: "Portal de clientes",
     description: "Portal web donde los clientes consultan pedidos y pagan facturas",
     context: "Stack: React + Node/Express + MongoDB. Pagos con Stripe. Lanzamiento de pagos previsto para fin de mes.",
-    members: ["Ana López", "Carlos Ruiz", "María Gómez"],
+    members: [
+      { name: "Ana López", aliases: [] },
+      { name: "Carlos Ruiz", aliases: [] },
+      { name: "María Gómez", aliases: [] },
+      { name: "Octavio Ramírez", aliases: ["Tavo"] },
+    ],
   },
   session: { type: "meeting", title: "Daily", date: new Date(), participants: ["Ana López", "Carlos Ruiz", "María Gómez"] },
   transcript: {

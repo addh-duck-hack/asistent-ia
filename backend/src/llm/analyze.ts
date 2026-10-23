@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { Analysis, type AnalysisDepth } from "@asistent-ia/schema";
 import { config } from "../config.js";
+import { formatMember } from "../utils/people.js";
 import { getClaude } from "./client.js";
 import { estimateCostUsd } from "./pricing.js";
 import { getProfile, type AnalysisProfile, type Effort } from "./profiles.js";
@@ -15,7 +16,13 @@ export interface TranscriptSegmentInput {
 
 export interface AnalyzeInput {
   depth: AnalysisDepth;
-  project: { name: string; description: string; context: string; members: string[] };
+  project: {
+    name: string;
+    description: string;
+    context: string;
+    /** Con sus alias, para que Claude reconozca "Tavo" como Octavio. */
+    members: { name: string; aliases: string[] }[];
+  };
   session: { type: string; title: string; date: Date; participants: string[] };
   transcript: { text: string; segments: TranscriptSegmentInput[] };
   openItems: { id: string; task: string; owner?: string | null; status: string }[];
@@ -85,7 +92,7 @@ export function buildAnalysisRequest(input: AnalyzeInput, profile: AnalysisProfi
     `Nombre: ${project.name}`,
     project.description && `Descripción: ${project.description}`,
     project.context && `Contexto:\n${project.context}`,
-    project.members.length > 0 && `Miembros: ${project.members.join(", ")}`,
+    project.members.length > 0 && `Miembros: ${project.members.map(formatMember).join(", ")}`,
     "</proyecto>",
   ]
     .filter(Boolean)

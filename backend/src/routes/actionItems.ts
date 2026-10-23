@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { ActionItemModel } from "../models/index.js";
+import { ActionItemModel, PersonModel, ProjectModel } from "../models/index.js";
 
 export const actionItemsRouter = Router();
 
@@ -40,10 +40,47 @@ actionItemsRouter.get("/", async (req, res) => {
   res.json(items);
 });
 
+const ObjectId = z.string().regex(/^[a-f\d]{24}$/i, "id inválido");
+
+const Create = z.object({
+  projectId: ObjectId,
+  task: z.string().trim().min(1),
+  ownerId: ObjectId.optional(),
+  dueDate: z.coerce.date().optional(),
+  priority: z.enum(["low", "medium", "high"]).default("medium"),
+});
+
+// Tarea creada a mano por el líder (no sale de una sesión).
+actionItemsRouter.post("/", async (req, res) => {
+  const body = Create.parse(req.body ?? {});
+  if (!(await ProjectModel.exists({ _id: body.projectId }))) {
+    res.status(404).json({ error: "project_not_found", message: "El proyecto no existe." });
+    return;
+  }
+  const person = body.ownerId ? await PersonModel.findById(body.ownerId).lean() : null;
+  if (body.ownerId && !person) {
+    res.status(404).json({ error: "person_not_found", message: "La persona no existe." });
+    return;
+  }
+  const item = await ActionItemModel.create({
+    projectId: body.projectId,
+    task: body.task,
+    owner: person?.name,
+    ownerId: person?._id,
+    dueDate: body.dueDate,
+    priority: body.priority,
+    source: "manual",
+  });
+  res.status(201).json(item);
+});
+
 const Patch = z
   .object({
     task: z.string().trim().min(1),
     owner: z.string().trim().nullable(),
+    // Asignar a una persona del equipo (null = sin responsable).
+    ownerId: ObjectId.nullable(),
+    projectId: ObjectId,
     dueDate: z.coerce.date().nullable(),
     priority: z.enum(["low", "medium", "high"]),
     status: Status,
@@ -53,7 +90,7 @@ const Patch = z
 
 // Edición manual desde la app; los cambios de estado quedan en el historial.
 actionItemsRouter.patch("/:id", async (req, res) => {
-  const { note, owner, dueDate, ...rest } = Patch.parse(req.body ?? {});
+  const { note, owner, ownerId, dueDate, ...rest } = Patch.parse(req.body ?? {});
   const item = await ActionItemModel.findById(req.params.id);
   if (!item) {
     res.status(404).json({ error: "not_found" });
@@ -64,6 +101,19 @@ actionItemsRouter.patch("/:id", async (req, res) => {
   if (owner !== undefined) {
     item.owner = owner ?? undefined;
     item.ownerId = undefined; // el responsable escrito a mano ya no se liga a una Person
+  }
+  if (ownerId !== undefined) {
+    const person = ownerId ? await PersonModel.findById(ownerId).lean() : null;
+    if (ownerId && !person) {
+      res.status(404).json({ error: "person_not_found", message: "La persona no existe." });
+      return;
+    }
+    const previous = item.owner;
+    item.ownerId = person?._id;
+    item.owner = person?.name;
+    if ((previous ?? null) !== (person?.name ?? null)) {
+      item.history.push({ status: item.status, note: `Responsable: ${person?.name ?? "sin responsable"}`, at: new Date() });
+    }
   }
   if (dueDate !== undefined) item.dueDate = dueDate ?? undefined;
   if (statusChanged || note) {

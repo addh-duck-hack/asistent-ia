@@ -7,6 +7,8 @@ const personSchema = new Schema(
     role: { type: String, default: "" },
     // Variantes con las que aparece en transcripciones/Teams ("Juan", "JP", ...).
     aliases: [{ type: String, trim: true }],
+    // Archivar sin borrar: conserva su historial pero deja de aparecer y de asignarse.
+    active: { type: Boolean, default: true },
   },
   { timestamps: true },
 );

@@ -9,6 +9,7 @@ import { estimateCostUsd } from "./pricing.js";
 import { getProfile, type AnalysisProfile } from "./profiles.js";
 import { DIGEST_PROMPT_VERSION, DIGEST_SYSTEM_PROMPT } from "./prompts/digest.js";
 import { NonRetryableAnalysisError } from "./analyze.js";
+import { formatMember } from "../utils/people.js";
 
 export interface DigestInput {
   projectId: string;
@@ -40,7 +41,9 @@ export async function buildDigestInput(
   periodStart: Date,
   periodEnd: Date,
 ): Promise<DigestInput | null> {
-  const project = await ProjectModel.findById(projectId).lean();
+  const project = await ProjectModel.findById(projectId)
+    .populate<{ members: { name: string; aliases: string[]; active?: boolean }[] }>("members")
+    .lean();
   if (!project) return null;
 
   const sessions = await SessionModel.find({
@@ -92,7 +95,11 @@ export async function buildDigestInput(
   });
 
   const body = [
-    `<proyecto>\nNombre: ${project.name}${project.context ? `\nContexto: ${project.context}` : ""}\n</proyecto>`,
+    `<proyecto>\nNombre: ${project.name}${project.context ? `\nContexto: ${project.context}` : ""}${
+      project.members.length
+        ? `\nMiembros: ${project.members.filter((m) => m.active !== false).map(formatMember).join(", ")}`
+        : ""
+    }\n</proyecto>`,
     `<periodo>${day(periodStart)} a ${day(periodEnd)} · ${sessions.length} sesiones</periodo>`,
     `<sesiones>\n${sessionBlocks.join("\n\n")}\n</sesiones>`,
     `<pendientes_abiertos>\n${openLines.join("\n") || "Ninguno."}\n</pendientes_abiertos>`,

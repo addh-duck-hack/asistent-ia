@@ -4,7 +4,15 @@ import { ANALYSIS_SYSTEM_PROMPT } from "./prompts/analysis.js";
 
 const input: AnalyzeInput = {
   depth: "deep",
-  project: { name: "Portal", description: "Portal de clientes", context: "React + Node", members: ["Ana", "Carlos"] },
+  project: {
+    name: "Portal",
+    description: "Portal de clientes",
+    context: "React + Node",
+    members: [
+      { name: "Ana", aliases: [] },
+      { name: "Octavio Ramírez", aliases: ["Tavo", "Octa"] },
+    ],
+  },
   session: { type: "meeting", title: "Daily", date: new Date("2026-10-22T15:00:00Z"), participants: [] },
   transcript: {
     text: "",
@@ -58,6 +66,7 @@ describe("buildAnalysisRequest", () => {
     expect(req.system[0]!.cache_control).toEqual({ type: "ephemeral" });
     const [project, session] = req.messages[0]!.content;
     expect(project!.text).toContain("Nombre: Portal");
+    expect(project!.text).toContain("Miembros: Ana, Octavio Ramírez (también: Tavo, Octa)");
     expect(project!.cache_control).toEqual({ type: "ephemeral" });
     expect(project!.text).not.toContain("Migrar la base");
     expect(session!.text).toContain("[abc123] Migrar la base (responsable: Carlos)");

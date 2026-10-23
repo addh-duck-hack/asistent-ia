@@ -3,7 +3,9 @@ import { Schema, model, type InferSchemaType } from "mongoose";
 const actionItemSchema = new Schema(
   {
     projectId: { type: Schema.Types.ObjectId, ref: "Project", required: true },
-    sessionId: { type: Schema.Types.ObjectId, ref: "Session", required: true },
+    // Opcional: las tareas creadas a mano no salen de una sesión.
+    sessionId: { type: Schema.Types.ObjectId, ref: "Session" },
+    source: { type: String, enum: ["session", "manual"], default: "session" },
     task: { type: String, required: true },
     owner: { type: String },
     ownerId: { type: Schema.Types.ObjectId, ref: "Person" },

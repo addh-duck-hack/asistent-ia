@@ -7,3 +7,4 @@ export * from "./ActionItem.js";
 export * from "./IntegrationToken.js";
 export * from "./Digest.js";
 export * from "./DigestBatch.js";
+export * from "./OneOnOne.js";

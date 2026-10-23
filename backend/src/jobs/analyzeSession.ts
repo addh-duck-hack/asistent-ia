@@ -1,7 +1,6 @@
 import {
   ActionItemModel,
   AnalysisModel,
-  PersonModel,
   ProjectModel,
   SessionModel,
   TranscriptModel,
@@ -9,31 +8,9 @@ import {
 import type { Types } from "mongoose";
 import type { Analysis } from "@asistent-ia/schema";
 import { analyzeTranscript, type AnalyzeInput, type AnalyzeOutput } from "../llm/analyze.js";
+import { buildOwnerResolver } from "../utils/people.js";
 
 type Analyzer = (input: AnalyzeInput) => Promise<AnalyzeOutput>;
-
-function normalize(s: string): string {
-  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
-}
-
-// Mapea el responsable que escribió Claude ("Juan", "JP") a una Person por
-// nombre o alias. Si hay ambigüedad o no hay coincidencia, queda sin ownerId.
-async function buildOwnerResolver() {
-  const people = await PersonModel.find().lean();
-  const index = new Map<string, string[]>();
-  for (const p of people) {
-    for (const key of [p.name, p.name.split(/\s+/)[0] ?? "", ...(p.aliases ?? [])]) {
-      if (!key) continue;
-      const k = normalize(key);
-      index.set(k, [...new Set([...(index.get(k) ?? []), String(p._id)])]);
-    }
-  }
-  return (owner: string | null) => {
-    if (!owner) return undefined;
-    const ids = index.get(normalize(owner));
-    return ids?.length === 1 ? ids[0] : undefined;
-  };
-}
 
 function parseDueDate(value: string | null): Date | undefined {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
@@ -78,7 +55,9 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
   try {
     const [transcript, project, openItems] = await Promise.all([
       TranscriptModel.findOne({ sessionId }).lean(),
-      ProjectModel.findById(session.projectId).populate<{ members: { name: string }[] }>("members").lean(),
+      ProjectModel.findById(session.projectId)
+        .populate<{ members: { name: string; aliases: string[]; active?: boolean }[] }>("members")
+        .lean(),
       ActionItemModel.find({
         projectId: session.projectId,
         sessionId: { $ne: session._id },
@@ -97,7 +76,9 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
         name: project.name,
         description: project.description ?? "",
         context: project.context ?? "",
-        members: project.members.map((m) => m.name),
+        members: project.members
+          .filter((m) => m.active !== false)
+          .map((m) => ({ name: m.name, aliases: m.aliases ?? [] })),
       },
       session: {
         type: session.type,

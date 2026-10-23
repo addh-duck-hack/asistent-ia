@@ -76,7 +76,7 @@ const totals = new Map<string, { usd: number; secs: number }>();
 for (const session of sessions) {
   const [transcript, project] = await Promise.all([
     TranscriptModel.findOne({ sessionId: session._id }).lean(),
-    ProjectModel.findById(session.projectId).populate<{ members: { name: string }[] }>("members").lean(),
+    ProjectModel.findById(session.projectId).populate<{ members: { name: string; aliases: string[] }[] }>("members").lean(),
   ]);
   if (!transcript || !project) {
     log(`- ${session._id}: sin transcripción o proyecto, se omite`);
@@ -99,7 +99,7 @@ for (const session of sessions) {
             name: project.name,
             description: project.description ?? "",
             context: project.context ?? "",
-            members: project.members.map((m) => m.name),
+            members: project.members.map((m) => ({ name: m.name, aliases: m.aliases ?? [] })),
           },
           session: { type: session.type, title: session.title, date: session.date, participants: session.participants },
           transcript: { text: transcript.text, segments: transcript.segments },

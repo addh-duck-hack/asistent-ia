@@ -181,7 +181,7 @@ describe("runAnalyzeSession", () => {
 
     const input = analyze.mock.calls[0]![0];
     expect(input.depth).toBe("standard");
-    expect(input.project).toMatchObject({ name: "Portal", context: "Pagos con Stripe", members: ["Carlos Ruiz"] });
+    expect(input.project).toMatchObject({ name: "Portal", context: "Pagos con Stripe", members: [{ name: "Carlos Ruiz", aliases: ["Charly"] }] });
     expect(input.transcript.segments[0]).toMatchObject({ speaker: "Ana López" });
 
     const detail = await fetch(`${base}/api/sessions/${sessionId}`, { headers }).then((r) => r.json());
