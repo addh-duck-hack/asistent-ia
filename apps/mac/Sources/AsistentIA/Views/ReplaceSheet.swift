@@ -55,14 +55,26 @@ struct ReplaceSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Buscar y reemplazar").font(.title2.bold())
-            Form {
-                TextField("Buscar", text: $find, prompt: Text("Tox"))
-                TextField("Reemplazar por", text: $replace, prompt: Text("Toks"))
+            // Grid y no Form: un Form agrupado dentro de la hoja se encoge a una
+            // fila y esconde el segundo campo.
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
+                GridRow {
+                    Text("Buscar").gridColumnAlignment(.trailing)
+                    TextField("", text: $find, prompt: Text("Tox")).textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Reemplazar por")
+                    TextField("", text: $replace, prompt: Text("Toks")).textFieldStyle(.roundedBorder)
+                        .onSubmit { if total > 0 && !working { apply() } }
+                }
                 if canAddToVocabulary, let project {
-                    Toggle("Agregar «\(term)» al vocabulario de \(project.name)", isOn: $addToVocabulary)
+                    GridRow {
+                        Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                        Toggle("Agregar «\(term)» al vocabulario de \(project.name)", isOn: $addToVocabulary)
+                    }
                 }
             }
-            .formStyle(.grouped)
+            .fixedSize(horizontal: false, vertical: true)
 
             if !find.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(total == 0 ? "Sin coincidencias (palabra o frase completa, sin importar mayúsculas)."

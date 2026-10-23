@@ -7,6 +7,19 @@ struct ContentView: View {
     @State private var showNewPerson = false
     @State private var showNewSession = false
     @State private var editingProject: Project?
+    /// Roles contraídos en la barra lateral (uno por línea); por defecto, todos abiertos.
+    @AppStorage("collapsedRoles") private var collapsedRoles = ""
+
+    private func expandedBinding(_ role: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedRoles.split(separator: "\n").contains(Substring(role)) },
+            set: { open in
+                var roles = Set(collapsedRoles.split(separator: "\n").map(String.init))
+                if open { roles.remove(role) } else { roles.insert(role) }
+                collapsedRoles = roles.sorted().joined(separator: "\n")
+            }
+        )
+    }
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -30,13 +43,19 @@ struct ContentView: View {
                     }
                 }
                 Section {
-                    ForEach(store.people) { person in
-                        PersonRow(person: person).tag(AppStore.SidebarItem.person(person.id))
-                            .contextMenu {
-                                Button("Preguntar sobre \(person.name)…") { store.startConversation(personId: person.id) }
-                                Divider()
-                                Button("Eliminar persona…", role: .destructive) { store.pendingDeletion = .person(person) }
+                    ForEach(TeamGroup.byRole(store.people)) { group in
+                        DisclosureGroup(isExpanded: expandedBinding(group.role)) {
+                            ForEach(group.people) { person in
+                                PersonRow(person: person).tag(AppStore.SidebarItem.person(person.id))
+                                    .contextMenu {
+                                        Button("Preguntar sobre \(person.name)…") { store.startConversation(personId: person.id) }
+                                        Divider()
+                                        Button("Eliminar persona…", role: .destructive) { store.pendingDeletion = .person(person) }
+                                    }
                             }
+                        } label: {
+                            TeamGroupLabel(group: group)
+                        }
                     }
                     Button { showNewPerson = true } label: { Label("Agregar persona", systemImage: "person.badge.plus") }
                         .buttonStyle(.plain)

@@ -59,3 +59,19 @@ import Testing
         with: APIClient.encoder.encode(ActionItemPatch(ownerId: .some("p1")))) as? [String: Any])
     #expect(assign["ownerId"] as? String == "p1")
 }
+
+@Test func groupsPeopleByRoleIgnoringCaseWithNoRoleLast() throws {
+    let json = """
+    [{"_id": "1", "name": "Ana", "role": "iOS Developer", "aliases": []},
+     {"_id": "2", "name": "Beto", "role": "", "aliases": []},
+     {"_id": "3", "name": "Carla", "role": "Android Developer", "aliases": []},
+     {"_id": "4", "name": "Dani", "role": " ios developer ", "aliases": []},
+     {"_id": "5", "name": "Eva", "aliases": []}]
+    """
+    let people = try APIClient.decoder.decode([TeamMember].self, from: Data(json.utf8))
+    let groups = TeamGroup.byRole(people)
+    #expect(groups.map(\.role) == ["Android Developer", "iOS Developer", "Sin rol"])
+    #expect(groups[1].people.map(\.name) == ["Ana", "Dani"])
+    #expect(groups[2].people.map(\.name) == ["Beto", "Eva"])
+    #expect(TeamGroup.roles(people) == ["Android Developer", "iOS Developer"])
+}

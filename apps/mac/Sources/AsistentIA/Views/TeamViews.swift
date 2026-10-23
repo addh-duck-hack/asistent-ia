@@ -23,6 +23,59 @@ struct PersonRow: View {
     }
 }
 
+/// Personas agrupadas por rol para la barra lateral. "iOS developer" e "iOS
+/// Developer" van juntos (con el nombre como se escribió primero); sin rol, al final.
+struct TeamGroup: Identifiable, Equatable {
+    static let noRole = "Sin rol"
+
+    let role: String
+    let people: [TeamMember]
+    var id: String { role }
+
+    static func byRole(_ people: [TeamMember]) -> [TeamGroup] {
+        var order: [String] = []
+        var groups: [String: (label: String, people: [TeamMember])] = [:]
+        for p in people {
+            let label = p.role?.trimmingCharacters(in: .whitespaces).nilIfEmpty ?? noRole
+            let key = label.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            if groups[key] == nil { order.append(key); groups[key] = (label, []) }
+            groups[key]!.people.append(p)
+        }
+        return order
+            .map { TeamGroup(role: groups[$0]!.label, people: groups[$0]!.people) }
+            .sorted { a, b in
+                if (a.role == noRole) != (b.role == noRole) { return b.role == noRole }
+                return a.role.localizedCaseInsensitiveCompare(b.role) == .orderedAscending
+            }
+    }
+
+    /// Roles distintos que ya existen, para sugerirlos al editar.
+    static func roles(_ people: [TeamMember]) -> [String] {
+        byRole(people).map(\.role).filter { $0 != noRole }
+    }
+}
+
+struct TeamGroupLabel: View {
+    let group: TeamGroup
+
+    var body: some View {
+        let overdue = group.people.reduce(0) { $0 + ($1.counts?.overdue ?? 0) }
+        HStack {
+            Text(group.role).font(.callout.weight(.medium))
+            Text("\(group.people.count)").font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            if overdue > 0 {
+                Image(systemName: "exclamationmark.circle.fill").font(.caption).foregroundStyle(.red)
+                    .help("\(overdue) pendientes vencidos en este grupo")
+            }
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 // MARK: - Editor de persona (con alias)
 
 struct PersonEditorSheet: View {
@@ -43,7 +96,20 @@ struct PersonEditorSheet: View {
         Form {
             Section {
                 TextField("Nombre completo", text: $name, prompt: Text("Octavio Ramírez"))
-                TextField("Rol", text: $role, prompt: Text("Dev iOS, QA, Backend…"))
+                HStack {
+                    TextField("Rol", text: $role, prompt: Text("iOS Developer, Android Developer, QA…"))
+                    let roles = TeamGroup.roles(store.people)
+                    if !roles.isEmpty {
+                        Menu {
+                            ForEach(roles, id: \.self) { r in Button(r) { role = r } }
+                        } label: {
+                            Image(systemName: "chevron.down.circle")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("Usar un rol que ya existe (agrupa a las personas en la barra lateral)")
+                    }
+                }
                 TextField("Correo", text: $email)
             }
             Section {
