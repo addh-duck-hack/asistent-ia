@@ -77,6 +77,95 @@ final class AppStore {
     var selectedDigest: WeeklyDigest? { digests.first { $0.id == selectedDigestId } }
     var errorMessage: String?
 
+    /// Aviso de éxito (copiado, exportado); `file` permite abrir la nota exportada.
+    struct Notice: Identifiable {
+        let id = UUID()
+        let text: String
+        var file: URL?
+    }
+
+    var notice: Notice?
+
+    // MARK: Compartir y exportar
+
+    func copy(_ doc: ShareDocument) {
+        ShareRenderer.copy(doc)
+        notify("Copiado: pégalo en Teams, WhatsApp, Notion o un correo")
+    }
+
+    func copy(session: Session) async {
+        guard let detail = await sessionDetail(session.id) else { return }
+        copy(.session(detail, projectName: projectName(detail.session.projectId), audience: .team))
+    }
+
+    func export(session: Session) async {
+        guard let exporter = obsidian(), let detail = await sessionDetail(session.id) else { return }
+        exportFile { try exporter.exportSession(detail, projectName: projectName(detail.session.projectId) ?? "Sin proyecto") }
+    }
+
+    func export(digest: WeeklyDigest) {
+        guard let exporter = obsidian() else { return }
+        exportFile { try exporter.exportDigest(digest, projectName: selectedProject?.name ?? "Sin proyecto") }
+    }
+
+    func export(oneOnOne prep: OneOnOnePrep) {
+        guard let exporter = obsidian(), let person = selectedPerson else { return }
+        exportFile { try exporter.exportOneOnOne(prep, person: person) }
+    }
+
+    /// Todas las sesiones analizadas y los resúmenes del proyecto.
+    func export(project: Project) async {
+        guard let exporter = obsidian(), !exporting else { return }
+        exporting = true
+        defer { exporting = false }
+        await run {
+            let sessions = try await api.sessions(projectId: project.id).filter { $0.status == .done }
+            for s in sessions { try exporter.exportSession(try await api.session(id: s.id), projectName: project.name) }
+            let digests = try await api.digests(projectId: project.id)
+            for d in digests { try exporter.exportDigest(d, projectName: project.name) }
+            notify("Exportado a Obsidian: \(sessions.count) sesiones y \(digests.count) resúmenes de \(project.name)",
+                   file: exporter.root.appending(path: ObsidianExporter.fileName(project.name)))
+        }
+    }
+
+    var exporting = false
+
+    private func obsidian() -> ObsidianExporter? {
+        guard let root = ObsidianExporter.configuredRoot else {
+            errorMessage = "Elige la carpeta de tu vault en Ajustes (⌘,) → Obsidian."
+            return nil
+        }
+        return ObsidianExporter(root: root, people: people)
+    }
+
+    private func exportFile(_ work: () throws -> URL) {
+        do {
+            let url = try work()
+            errorMessage = nil
+            notify("Exportado a Obsidian: \(url.lastPathComponent)", file: url)
+        } catch {
+            errorMessage = "No se pudo exportar: \(error.localizedDescription)"
+        }
+    }
+
+    private func sessionDetail(_ id: String) async -> SessionDetail? {
+        if let detail, detail.session.id == id { return detail }
+        var fetched: SessionDetail?
+        await run { fetched = try await api.session(id: id) }
+        return fetched
+    }
+
+    private func projectName(_ id: String) -> String? { projects.first { $0.id == id }?.name }
+
+    private func notify(_ text: String, file: URL? = nil) {
+        let notice = Notice(text: text, file: file)
+        self.notice = notice
+        Task {
+            try? await Task.sleep(for: .seconds(6))
+            if self.notice?.id == notice.id { self.notice = nil }
+        }
+    }
+
     // MARK: Eliminar
 
     /// Lo que el usuario pidió eliminar; ContentView muestra la confirmación.
@@ -328,6 +417,9 @@ final class AppStore {
                 guard let fresh = try? await self.api.session(id: id) else { continue }
                 self.detail = fresh
                 if !fresh.session.status.isInProgress {
+                    if fresh.session.status == .done, UserDefaults.standard.bool(forKey: ObsidianExporter.autoExportKey) {
+                        await self.export(session: fresh.session)
+                    }
                     await self.loadSessions()
                     return
                 }

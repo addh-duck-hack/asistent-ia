@@ -54,6 +54,12 @@ struct SessionDetailView: View {
             .frame(maxWidth: 860, alignment: .leading)
         }
         .toolbar {
+            ShareToolbarButtons(
+                copy: { Task { await store.copy(session: session) } },
+                export: { Task { await store.export(session: session) } }
+            )
+            .disabled(detail.analysis == nil)
+
             Menu {
                 ForEach(AnalysisDepth.allCases) { depth in
                     Button {

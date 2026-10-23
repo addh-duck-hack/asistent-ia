@@ -345,6 +345,9 @@ private struct OneOnOneListView: View {
                     }
                     .tag(prep.id)
                     .contextMenu {
+                        Button("Copiar (privado)") { store.copy(.oneOnOne(prep, personName: store.selectedPerson?.name)) }
+                        Button("Exportar a Obsidian") { store.export(oneOnOne: prep) }
+                        Divider()
                         Button("Eliminar…", role: .destructive) { store.pendingDeletion = .oneOnOne(prep) }
                     }
                 }
@@ -392,6 +395,7 @@ struct PersonDetailView: View {
 }
 
 private struct OneOnOneDetailView: View {
+    @Environment(AppStore.self) private var store
     let prep: OneOnOnePrep
     let person: TeamMember?
 
@@ -423,6 +427,14 @@ private struct OneOnOneDetailView: View {
             }
             .padding(24)
             .frame(maxWidth: 820, alignment: .leading)
+        }
+        .toolbar {
+            // Privado: es para tus notas, no para el chat del equipo.
+            ShareToolbarButtons(
+                copyLabel: "Copiar (privado)",
+                copy: { store.copy(.oneOnOne(prep, personName: person?.name)) },
+                export: { store.export(oneOnOne: prep) }
+            )
         }
     }
 

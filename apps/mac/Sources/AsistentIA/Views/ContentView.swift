@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -16,6 +17,9 @@ struct ContentView: View {
                         Label(project.name, systemImage: "folder")
                             .tag(AppStore.SidebarItem.project(project.id))
                             .contextMenu {
+                                Button("Exportar proyecto a Obsidian") { Task { await store.export(project: project) } }
+                                    .disabled(store.exporting)
+                                Divider()
                                 Button("Eliminar proyecto…", role: .destructive) { store.pendingDeletion = .project(project) }
                             }
                     }
@@ -114,6 +118,9 @@ struct ContentView: View {
         .sheet(isPresented: $showNewPerson) { PersonEditorSheet(person: nil) }
         .sheet(isPresented: $showNewSession) { NewSessionSheet() }
         .overlay(alignment: .bottom) {
+            if let notice = store.notice, store.errorMessage == nil {
+                NoticeBanner(notice: notice)
+            }
             if let message = store.errorMessage {
                 Text(message)
                     .font(.callout)
@@ -184,6 +191,11 @@ struct SessionListView: View {
                     .padding(.vertical, 4)
                     .tag(session.id)
                     .contextMenu {
+                        Button("Copiar para compartir") { Task { await store.copy(session: session) } }
+                            .disabled(session.status != .done)
+                        Button("Exportar a Obsidian") { Task { await store.export(session: session) } }
+                            .disabled(session.status != .done)
+                        Divider()
                         Button("Eliminar sesión…", role: .destructive) { store.pendingDeletion = .session(session) }
                     }
                 }
@@ -212,5 +224,42 @@ struct StatusBadge: View {
         case .done: .green
         case .failed: .red
         }
+    }
+}
+
+/// Aviso de éxito; si hay archivo, permite abrirlo en Obsidian o en Finder.
+private struct NoticeBanner: View {
+    @Environment(AppStore.self) private var store
+    let notice: AppStore.Notice
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Label(notice.text, systemImage: "checkmark.circle.fill")
+            if let file = notice.file {
+                Button("Abrir en Obsidian") { NSWorkspace.shared.open(ObsidianLink.url(for: file)) }
+                Button("Mostrar en Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+            }
+        }
+        .font(.callout)
+        .buttonStyle(.link)
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.green.opacity(0.5)))
+        .padding()
+        .onTapGesture { store.notice = nil }
+    }
+}
+
+/// Botones de la barra para copiar y exportar lo que se está viendo.
+struct ShareToolbarButtons: View {
+    var copyLabel = "Copiar para compartir"
+    let copy: () -> Void
+    let export: () -> Void
+
+    var body: some View {
+        Button(action: copy) { Label(copyLabel, systemImage: "doc.on.doc") }
+            .help(copyLabel)
+        Button(action: export) { Label("Exportar a Obsidian", systemImage: "square.and.arrow.down.on.square") }
+            .help("Exportar a Obsidian")
     }
 }

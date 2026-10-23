@@ -25,6 +25,9 @@ struct DigestListView: View {
                     .padding(.vertical, 3)
                     .tag(digest.id)
                     .contextMenu {
+                        Button("Copiar para compartir") { store.copy(.digest(digest, projectName: store.selectedProject?.name)) }
+                        Button("Exportar a Obsidian") { store.export(digest: digest) }
+                        Divider()
                         Button("Eliminar resumen…", role: .destructive) { store.pendingDeletion = .digest(digest) }
                     }
                 }
@@ -46,6 +49,7 @@ struct DigestListView: View {
 }
 
 struct DigestDetailView: View {
+    @Environment(AppStore.self) private var store
     let digest: WeeklyDigest
 
     var body: some View {
@@ -90,6 +94,12 @@ struct DigestDetailView: View {
             }
             .padding(24)
             .frame(maxWidth: 860, alignment: .leading)
+        }
+        .toolbar {
+            ShareToolbarButtons(
+                copy: { store.copy(.digest(digest, projectName: store.selectedProject?.name)) },
+                export: { store.export(digest: digest) }
+            )
         }
     }
 

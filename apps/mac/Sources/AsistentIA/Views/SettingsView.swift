@@ -11,6 +11,8 @@ struct SettingsView: View {
     @AppStorage(RecordingService.keepAudioKey) private var keepAudio = false
     @AppStorage(RecordingService.voiceProcessingKey) private var voiceProcessing = false
     @AppStorage(AudioDevices.selectedMicKey) private var micUID = ""
+    @AppStorage(ObsidianExporter.rootKey) private var obsidianRoot = ""
+    @AppStorage(ObsidianExporter.autoExportKey) private var obsidianAuto = false
 
     var body: some View {
         Form {
@@ -40,6 +42,20 @@ struct SettingsView: View {
                     NSWorkspace.shared.open(RecordingService.recordingsDirectory)
                 }
             }
+            Section("Obsidian") {
+                LabeledContent("Carpeta") {
+                    HStack {
+                        Text(obsidianRoot.isEmpty ? "Sin elegir" : (obsidianRoot as NSString).abbreviatingWithTildeInPath)
+                            .lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(obsidianRoot.isEmpty ? .secondary : .primary)
+                        Button("Elegir…") { chooseObsidianFolder() }
+                    }
+                }
+                Text("Una carpeta dentro de tu vault (por ejemplo «Asistente»). Ahí se crean una nota por sesión, los resúmenes y las fichas de las personas. Lo que escribas bajo la línea «fin asistente» se conserva al volver a exportar.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Exportar automáticamente al terminar cada análisis (con la app abierta)", isOn: $obsidianAuto)
+                    .disabled(obsidianRoot.isEmpty)
+            }
             HStack {
                 Button("Guardar y probar conexión") { saveAndTest() }
                     .disabled(testing || token.hasPrefix("sk-ant-"))
@@ -50,6 +66,17 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .padding()
+    }
+
+    private func chooseObsidianFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Elegir"
+        panel.message = "Elige la carpeta del vault donde se guardarán las notas"
+        if !obsidianRoot.isEmpty { panel.directoryURL = URL(fileURLWithPath: obsidianRoot) }
+        if panel.runModal() == .OK, let url = panel.url { obsidianRoot = url.path }
     }
 
     private func saveAndTest() {
