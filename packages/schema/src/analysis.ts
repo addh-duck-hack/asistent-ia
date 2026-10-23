@@ -53,6 +53,13 @@ export const TeamSignals = z.object({
   dependencies: z.array(z.string()),
 });
 
+// Quién es cada voz sin identificar ("Voz 2") de una llamada separada por voz.
+export const SpeakerGuess = z.object({
+  label: z.string(),
+  name: z.string().nullable(),
+  evidence: z.string(),
+});
+
 export const Analysis = z.object({
   // Sin resumen "detallado": repetía lo que ya cubren topics y decisions y
   // era la parte más cara de la salida.
@@ -67,6 +74,7 @@ export const Analysis = z.object({
   open_questions: z.array(z.string()),
   followups_from_previous: z.array(FollowUp),
   team_signals: TeamSignals,
+  speaker_identification: z.array(SpeakerGuess),
 });
 
 export type Analysis = z.infer<typeof Analysis>;

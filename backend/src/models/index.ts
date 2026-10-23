@@ -8,3 +8,4 @@ export * from "./IntegrationToken.js";
 export * from "./Digest.js";
 export * from "./DigestBatch.js";
 export * from "./OneOnOne.js";
+export * from "./Conversation.js";

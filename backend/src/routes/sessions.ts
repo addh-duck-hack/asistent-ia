@@ -11,6 +11,7 @@ import {
 import { enqueueAnalysis } from "../jobs/queue.js";
 import { parseVtt } from "../utils/vtt.js";
 import { deleteSessions } from "../utils/deletion.js";
+import { buildOwnerResolver } from "../utils/people.js";
 
 export const sessionsRouter = Router();
 
@@ -39,6 +40,10 @@ const CreateSession = z.object({
   }),
 });
 
+// "me", "others" y las voces sin identificar ("Voz 2") no son participantes.
+const VOICE_LABEL = /^Voz \d+$/;
+const isPersonLabel = (s: string) => s !== "me" && s !== "others" && !VOICE_LABEL.test(s);
+
 function buildTranscript(t: z.infer<typeof CreateSession>["transcript"]) {
   if (t.format === "segments") {
     if (!t.segments?.length) throw new z.ZodError([{ code: "custom", path: ["transcript", "segments"], message: "Faltan segmentos", input: t }]);
@@ -63,7 +68,7 @@ sessionsRouter.post("/", async (req, res) => {
   const transcript = buildTranscript(body.transcript);
 
   // Si no se mandan participantes, se toman los hablantes del VTT.
-  const speakers = [...new Set(transcript.segments.map((s) => s.speaker).filter((s): s is string => !!s && s !== "me" && s !== "others"))];
+  const speakers = [...new Set(transcript.segments.map((s) => s.speaker).filter((s): s is string => !!s && isPersonLabel(s)))];
 
   const session = await SessionModel.create({
     projectId: body.projectId,
@@ -110,6 +115,48 @@ sessionsRouter.post("/:id/reanalyze", async (req, res) => {
   }
   await enqueueAnalysis(String(session._id));
   res.status(202).json(session);
+});
+
+// Pone nombre a las voces de una llamada separada por voz ("Voz 2" → "Octavio
+// Ramírez"): en la transcripción, en los participantes y en los pendientes de la
+// sesión que quedaron a nombre de esa voz. La app re-analiza después.
+const RenameSpeakers = z.object({
+  renames: z.array(z.object({ from: z.string().trim().min(1), to: z.string().trim().min(1) })).min(1).max(20),
+});
+
+sessionsRouter.patch("/:id/speakers", async (req, res) => {
+  const { renames } = RenameSpeakers.parse(req.body ?? {});
+  const [session, transcript] = await Promise.all([
+    SessionModel.findById(req.params.id),
+    TranscriptModel.findOne({ sessionId: req.params.id }),
+  ]);
+  if (!session || !transcript) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+  const map = new Map(renames.map((r) => [r.from, r.to]));
+  let segments = 0;
+  for (const seg of transcript.segments) {
+    const to = seg.speaker ? map.get(seg.speaker) : undefined;
+    if (to) {
+      seg.speaker = to;
+      segments++;
+    }
+  }
+  await transcript.save();
+
+  const participants = (session.participants ?? []).map((p) => map.get(p) ?? p);
+  for (const s of transcript.segments) if (s.speaker && isPersonLabel(s.speaker)) participants.push(s.speaker);
+  session.participants = [...new Set(participants)].filter(isPersonLabel);
+  await session.save();
+
+  const resolveOwner = await buildOwnerResolver();
+  let items = 0;
+  for (const [from, to] of map) {
+    const r = await ActionItemModel.updateMany({ sessionId: session._id, owner: from }, { owner: to, ownerId: resolveOwner(to) });
+    items += r.modifiedCount;
+  }
+  res.json({ segments, items, participants: session.participants });
 });
 
 // Borra la sesión con su transcripción, su análisis y los pendientes que nacieron en ella.
