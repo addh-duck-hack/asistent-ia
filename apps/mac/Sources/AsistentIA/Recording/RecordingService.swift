@@ -18,13 +18,14 @@ final class RecordingService {
         case recording(since: Date)
         case preparingModel(progress: Double)
         case transcribing(progress: Double)
+        case separatingVoices
         case uploading
         case finished(sessionId: String)
         case failed(String)
 
         var isBusy: Bool {
             switch self {
-            case .recording, .preparingModel, .transcribing, .uploading: true
+            case .recording, .preparingModel, .transcribing, .separatingVoices, .uploading: true
             default: false
             }
         }
@@ -153,7 +154,18 @@ final class RecordingService {
                 }
             }
 
-            let segments = TranscriptMerger.merge(me: results[micSink.url] ?? [], others: results[systemSink.url] ?? [])
+            // Separar las voces de la llamada y reconocer a quien ya se conoce. Si
+            // falla, se sigue con "Otros" como antes: nunca bloquea la sesión.
+            var others = results[systemSink.url] ?? []
+            var voices: [String: [Float]] = [:]
+            if hasSystem, !others.isEmpty, VoiceStore.isEnabled {
+                phase = .separatingVoices
+                if let diarization = try? await DiarizationService.shared.diarize(systemSink.url) {
+                    (others, voices) = SpeakerLabeler.label(others, diarization: diarization, profiles: VoiceStore.shared.profiles())
+                }
+            }
+
+            let segments = TranscriptMerger.merge(me: results[micSink.url] ?? [], others: others)
             guard !segments.isEmpty else { throw RecordingError.emptyTranscript }
 
             phase = .uploading
@@ -167,6 +179,7 @@ final class RecordingService {
                 transcript: .init(format: .segments, segments: segments)
             ))
 
+            if !voices.isEmpty { try? VoiceStore.shared.saveSessionVoices(session.id, voices) }
             if !(UserDefaults.standard.bool(forKey: Self.keepAudioKey)) {
                 try? FileManager.default.removeItem(at: folder)
             }

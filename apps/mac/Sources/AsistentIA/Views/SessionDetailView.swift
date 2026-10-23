@@ -35,6 +35,8 @@ struct SessionDetailView: View {
                     EmptyView()
                 }
 
+                VoicesSection(detail: detail).id(detail.session.id)
+
                 if let analysis = detail.analysis {
                     AnalysisMeta(analysis: analysis)
                     AnalysisSections(result: analysis.result)
@@ -228,5 +230,92 @@ private struct PriorityDot: View {
             .fill(priority == "high" ? Color.red : priority == "medium" ? .orange : .gray)
             .frame(width: 8, height: 8)
             .accessibilityLabel("Prioridad \(priority)")
+    }
+}
+
+/// Voces de una llamada separada por voz: Claude sugiere quién es cada una y
+/// el líder confirma. Confirmar guarda la huella en esta Mac para reconocer a
+/// la persona sola en las próximas reuniones.
+struct VoicesSection: View {
+    @Environment(AppStore.self) private var store
+    let detail: SessionDetail
+    @State private var selection: [String: String] = [:] // etiqueta → personId
+    @State private var saving = false
+
+    private var voices: [String: [Float]] { VoiceStore.shared.sessionVoices(detail.session.id) }
+
+    /// Etiquetas de voz de la transcripción ("me" y "others" no cuentan).
+    private var labels: [String] {
+        let fromTranscript = (detail.transcript?.segments ?? []).compactMap(\.speaker).filter { $0 != "me" && $0 != "others" }
+        var seen = Set<String>()
+        let all = (fromTranscript + voices.keys.sorted()).filter { seen.insert($0).inserted }
+        // Primero las que faltan por nombrar.
+        return all.sorted { isUnknown($0) && !isUnknown($1) }
+    }
+
+    private func isUnknown(_ label: String) -> Bool { label.range(of: #"^Voz \d+$"#, options: .regularExpression) != nil }
+
+    var body: some View {
+        if detail.session.type == .meeting, labels.contains(where: { isUnknown($0) || voices[$0] != nil }) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Voces de la llamada", systemImage: "person.wave.2").font(.headline)
+                ForEach(labels, id: \.self) { label in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(label).frame(width: 150, alignment: .leading)
+                            .foregroundStyle(isUnknown(label) ? .primary : .secondary)
+                        Picker("", selection: Binding(get: { selection[label] ?? "" }, set: { selection[label] = $0.isEmpty ? nil : $0 })) {
+                            Text("Sin nombre").tag("")
+                            ForEach(store.people) { Text($0.name).tag($0.id) }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 240)
+                        if voices[label] == nil {
+                            Image(systemName: "waveform.slash").foregroundStyle(.tertiary)
+                                .help("Sin huella guardada en esta Mac: se renombra, pero no se reconocerá sola después")
+                        }
+                    }
+                    if let guess = guess(for: label) {
+                        Text("Claude: \(guess.name ?? "sin identificar") — \(guess.evidence)")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(.leading, 158)
+                    }
+                }
+                HStack {
+                    Button(saving ? "Guardando…" : "Guardar nombres") {
+                        let names = selection.compactMapValues { id in store.people.first { $0.id == id } }
+                        saving = true
+                        Task { await store.nameVoices(names); saving = false }
+                    }
+                    .disabled(saving || selection.isEmpty || detail.session.status.isInProgress)
+                    Text("Si cambias un nombre, la sesión se vuelve a analizar.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(14)
+            .background(.purple.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            .onAppear(perform: prefill)
+            .onChange(of: detail.analysis?.createdAt) { prefill() }
+        }
+    }
+
+    private func guess(for label: String) -> AnalysisResult.SpeakerGuess? {
+        detail.analysis?.result.speakerIdentification?.first { $0.label == label }
+    }
+
+    /// Propone: si la etiqueta ya es un nombre, esa persona; si es "Voz N", lo que sugirió Claude.
+    private func prefill() {
+        var s: [String: String] = [:]
+        for label in labels {
+            let name = isUnknown(label) ? guess(for: label)?.name : label
+            if let name, let person = member(named: name) { s[label] = person.id }
+        }
+        selection = s
+    }
+
+    private func member(named name: String) -> TeamMember? {
+        let key = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        return store.people.first { p in
+            ([p.name] + p.aliases).contains { $0.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current) == key }
+        }
     }
 }

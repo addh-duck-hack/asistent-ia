@@ -12,11 +12,14 @@ struct ContentView: View {
         @Bindable var store = store
         NavigationSplitView {
             List(selection: $store.sidebar) {
+                Label("Preguntar", systemImage: "bubble.left.and.text.bubble.right")
+                    .tag(AppStore.SidebarItem.ask)
                 Section("Proyectos") {
                     ForEach(store.projects) { project in
                         Label(project.name, systemImage: "folder")
                             .tag(AppStore.SidebarItem.project(project.id))
                             .contextMenu {
+                                Button("Preguntar sobre este proyecto…") { store.startConversation(projectId: project.id) }
                                 Button("Exportar proyecto a Obsidian") { Task { await store.export(project: project) } }
                                     .disabled(store.exporting)
                                 Divider()
@@ -28,6 +31,8 @@ struct ContentView: View {
                     ForEach(store.people) { person in
                         PersonRow(person: person).tag(AppStore.SidebarItem.person(person.id))
                             .contextMenu {
+                                Button("Preguntar sobre \(person.name)…") { store.startConversation(personId: person.id) }
+                                Divider()
                                 Button("Eliminar persona…", role: .destructive) { store.pendingDeletion = .person(person) }
                             }
                     }
@@ -46,7 +51,10 @@ struct ContentView: View {
                     .help("Grabar reunión")
             }
         } content: {
-            if store.selectedPersonId != nil {
+            if store.showingAsk {
+                ConversationListView()
+                    .navigationSplitViewColumnWidth(min: 260, ideal: 300)
+            } else if store.selectedPersonId != nil {
                 PersonContentView()
                     .navigationSplitViewColumnWidth(min: 300, ideal: 360)
             } else {
@@ -77,7 +85,9 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            if store.selectedPersonId != nil {
+            if store.showingAsk {
+                ConversationView()
+            } else if store.selectedPersonId != nil {
                 PersonDetailView()
             } else {
                 switch store.tab {

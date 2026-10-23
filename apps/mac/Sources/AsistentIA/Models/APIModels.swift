@@ -125,6 +125,8 @@ struct AnalysisResult: Codable {
     struct Blocker: Codable, Hashable { let description: String; let affected: String?; let severity: String }
     struct FollowUp: Codable, Hashable { let actionItemId: String; let status: String; let note: String }
     struct TeamSignals: Codable { let workload: String?; let morale: String?; let dependencies: [String] }
+    /// Quién cree Claude que es cada "Voz N" (prompt analysis-v6 en adelante).
+    struct SpeakerGuess: Codable, Hashable { let label: String; let name: String?; let evidence: String }
 
     let summary: Summary
     let topics: [Topic]
@@ -135,6 +137,7 @@ struct AnalysisResult: Codable {
     let openQuestions: [String]
     let followupsFromPrevious: [FollowUp]
     let teamSignals: TeamSignals
+    let speakerIdentification: [SpeakerGuess]?
 }
 
 struct AnalysisUsage: Codable {

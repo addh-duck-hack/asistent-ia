@@ -28,6 +28,7 @@ final class AppStore {
 
     /// Elemento elegido en la barra lateral: un proyecto o una persona.
     enum SidebarItem: Hashable {
+        case ask
         case project(String)
         case person(String)
     }
@@ -52,15 +53,21 @@ final class AppStore {
 
     var sidebar: SidebarItem? {
         get {
+            if showingAsk { return .ask }
             if let selectedPersonId { return .person(selectedPersonId) }
             return selectedProjectId.map { .project($0) }
         }
         set {
             switch newValue {
+            case .ask:
+                showingAsk = true
+                selectedPersonId = nil
             case let .project(id):
+                showingAsk = false
                 selectedPersonId = nil
                 selectedProjectId = id
             case let .person(id):
+                showingAsk = false
                 selectedPersonId = id
             case nil:
                 break
@@ -76,6 +83,61 @@ final class AppStore {
     }
     var selectedDigest: WeeklyDigest? { digests.first { $0.id == selectedDigestId } }
     var errorMessage: String?
+
+    // MARK: Preguntar
+
+    var showingAsk = false
+    var conversations: [ConversationSummary] = []
+    var selectedConversationId: String?
+    var conversation: Conversation?
+    var asking = false
+    /// Alcance de la conversación nueva (cuando no hay una seleccionada).
+    var newConversationScope: (projectId: String?, personId: String?) = (nil, nil)
+
+    func loadConversations() async {
+        await run { conversations = try await api.conversations() }
+    }
+
+    func loadConversation() async {
+        guard let id = selectedConversationId else { conversation = nil; return }
+        if conversation?.id == id { return }
+        await run { conversation = try await api.conversation(id: id) }
+    }
+
+    /// Abre "Preguntar" con una conversación nueva, opcionalmente sobre un proyecto o una persona.
+    func startConversation(projectId: String? = nil, personId: String? = nil) {
+        newConversationScope = (projectId, personId)
+        selectedConversationId = nil
+        conversation = nil
+        sidebar = .ask
+    }
+
+    /// Envía la pregunta: crea la conversación si es nueva, o agrega un seguimiento.
+    @discardableResult
+    func ask(_ question: String) async -> Bool {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !asking else { return false }
+        asking = true
+        defer { asking = false }
+        return await run {
+            let updated = if let current = conversation {
+                try await api.ask(conversationId: current.id, question: q)
+            } else {
+                try await api.createConversation(.init(question: q, projectId: newConversationScope.projectId,
+                                                      personId: newConversationScope.personId))
+            }
+            conversation = updated
+            selectedConversationId = updated.id
+            conversations.removeAll { $0.id == updated.id }
+            conversations.insert(updated.summary, at: 0)
+        }
+    }
+
+    func scopeLabel(projectId: String?, personId: String?) -> String {
+        if let projectId, let p = projects.first(where: { $0.id == projectId }) { return "Proyecto \(p.name)" }
+        if let personId, let p = people.first(where: { $0.id == personId }) { return p.name }
+        return "Todo el historial"
+    }
 
     /// Aviso de éxito (copiado, exportado); `file` permite abrir la nota exportada.
     struct Notice: Identifiable {
@@ -171,6 +233,7 @@ final class AppStore {
     /// Lo que el usuario pidió eliminar; ContentView muestra la confirmación.
     enum Deletion: Identifiable {
         case project(Project), person(TeamMember), session(Session), item(TrackedItem), digest(WeeklyDigest), oneOnOne(OneOnOnePrep)
+        case conversation(ConversationSummary)
 
         var id: String {
             switch self {
@@ -180,6 +243,7 @@ final class AppStore {
             case let .item(x): "item-\(x.id)"
             case let .digest(x): "digest-\(x.id)"
             case let .oneOnOne(x): "oneOnOne-\(x.id)"
+            case let .conversation(x): "conversation-\(x.id)"
             }
         }
 
@@ -191,6 +255,7 @@ final class AppStore {
             case .item: "¿Eliminar este pendiente?"
             case let .digest(x): "¿Eliminar el resumen de \(x.periodLabel)?"
             case .oneOnOne: "¿Eliminar esta preparación de 1:1?"
+            case let .conversation(x): "¿Eliminar la conversación “\(x.title)”?"
             }
         }
 
@@ -204,7 +269,7 @@ final class AppStore {
                 "Se borrarán su transcripción, su análisis y los pendientes que nacieron en ella. No se puede deshacer."
             case let .item(x):
                 "“\(x.task)”. No se puede deshacer."
-            case .digest, .oneOnOne:
+            case .digest, .oneOnOne, .conversation:
                 "No se puede deshacer."
             }
         }
@@ -242,6 +307,10 @@ final class AppStore {
                   await run({ try await api.delete("/api/people/\(personId)/one-on-ones/\(x.id)") }) else { return }
             if selectedOneOnOneId == x.id { selectedOneOnOneId = nil }
             await loadPersonTab()
+        case let .conversation(x):
+            guard await run({ try await api.delete("/api/conversations/\(x.id)") }) else { return }
+            if selectedConversationId == x.id { selectedConversationId = nil; conversation = nil }
+            await loadConversations()
         }
     }
 
@@ -373,6 +442,7 @@ final class AppStore {
 
     /// Abre una sesión concreta (por ejemplo, recién grabada).
     func show(sessionId: String, projectId: String?) async {
+        showingAsk = false
         selectedPersonId = nil
         if let projectId, projectId != selectedProjectId {
             selectedProjectId = projectId
@@ -401,6 +471,34 @@ final class AppStore {
         await run { _ = try await api.reanalyze(sessionId: id, depth: depth) }
         await loadDetail()
         await loadSessions()
+    }
+
+    /// Nombra las voces de la sesión: guarda la huella de cada persona en esta
+    /// Mac (para reconocerla en las próximas reuniones), renombra en el backend
+    /// y re-analiza para que los responsables queden con su nombre.
+    func nameVoices(_ names: [String: TeamMember]) async {
+        guard let detail, !names.isEmpty else { return }
+        let id = detail.session.id
+        let voices = VoiceStore.shared.sessionVoices(id)
+        let renames = names.filter { $0.key != $0.value.name }.map { (from: $0.key, to: $0.value.name) }
+        let ok = await run {
+            if !renames.isEmpty { try await api.renameSpeakers(sessionId: id, renames) }
+            var updated = voices
+            for (label, person) in names {
+                guard let embedding = voices[label] else { continue }
+                try VoiceStore.shared.enroll(personId: person.id, name: person.name, embedding: embedding)
+                updated.removeValue(forKey: label)
+                updated[person.name] = embedding
+            }
+            try VoiceStore.shared.saveSessionVoices(id, updated)
+        }
+        guard ok else { return }
+        if renames.isEmpty {
+            notify("Voces guardadas: se reconocerán en las próximas reuniones")
+        } else {
+            notify("Voces nombradas; re-analizando la sesión con los nombres")
+            await reanalyze()
+        }
     }
 
     /// Carga el detalle y, mientras el análisis está en cola o en curso,

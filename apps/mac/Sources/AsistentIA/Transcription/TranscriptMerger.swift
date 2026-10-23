@@ -5,6 +5,8 @@ struct TimedText: Equatable, Sendable {
     var start: Double
     var end: Double
     var text: String
+    /// Etiqueta de la voz si se separó la llamada ("Octavio Ramírez", "Voz 2").
+    var speaker: String? = nil
 }
 
 /// Une las pistas "me" (micrófono) y "others" (audio del sistema) en una sola
@@ -36,7 +38,7 @@ enum TranscriptMerger {
         let mineWithoutEcho = mine.filter { m in
             !theirs.contains { o in overlaps(m, o) && similarity(m.text, o.text) >= 0.6 }
         }
-        let tagged = mineWithoutEcho.map { ($0, "me") } + theirs.map { ($0, "others") }
+        let tagged = mineWithoutEcho.map { ($0, "me") } + theirs.map { ($0, $0.speaker ?? "others") }
         return tagged
             .sorted { $0.0.start < $1.0.start }
             .map { Segment(startSec: $0.0.start, endSec: $0.0.end, speaker: $0.1, text: $0.0.text) }
@@ -51,7 +53,7 @@ enum TranscriptMerger {
             guard !text.isEmpty, !isHallucination(text) else { continue }
             // Whisper a veces repite la misma frase en ventanas seguidas.
             if let last = result.last, normalized(last.text) == normalized(text) { continue }
-            result.append(TimedText(start: item.start, end: item.end, text: text))
+            result.append(TimedText(start: item.start, end: item.end, text: text, speaker: item.speaker))
         }
         return result
     }

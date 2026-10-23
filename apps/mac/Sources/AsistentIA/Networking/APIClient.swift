@@ -147,6 +147,34 @@ struct APIClient: Sendable {
         _ = try await request("/api/action-items", method: "POST", body: body, as: Ignored.self)
     }
 
+    /// Pone nombre a voces de la llamada ("Voz 2" → "Octavio Ramírez").
+    func renameSpeakers(sessionId: String, _ renames: [(from: String, to: String)]) async throws {
+        struct Rename: Encodable { let from: String; let to: String }
+        struct Body: Encodable { let renames: [Rename] }
+        struct Ignored: Decodable {}
+        _ = try await request("/api/sessions/\(sessionId)/speakers", method: "PATCH",
+                              body: Body(renames: renames.map { Rename(from: $0.from, to: $0.to) }), as: Ignored.self)
+    }
+
+    // MARK: Preguntar
+
+    func conversations() async throws -> [ConversationSummary] {
+        try await request("/api/conversations", as: [ConversationSummary].self)
+    }
+
+    func conversation(id: String) async throws -> Conversation {
+        try await request("/api/conversations/\(id)", as: Conversation.self)
+    }
+
+    func createConversation(_ body: NewConversationRequest) async throws -> Conversation {
+        try await request("/api/conversations", method: "POST", body: body, as: Conversation.self)
+    }
+
+    func ask(conversationId: String, question: String) async throws -> Conversation {
+        struct Body: Encodable { let question: String }
+        return try await request("/api/conversations/\(conversationId)/messages", method: "POST", body: Body(question: question), as: Conversation.self)
+    }
+
     /// DELETE genérico; el backend responde con lo que borró (se ignora).
     func delete(_ path: String) async throws {
         struct Ignored: Decodable {}

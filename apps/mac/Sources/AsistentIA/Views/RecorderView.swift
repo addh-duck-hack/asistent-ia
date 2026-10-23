@@ -25,6 +25,9 @@ struct RecorderView: View {
             case let .transcribing(progress):
                 working("Transcribiendo en esta Mac…",
                         detail: "El audio no sale del equipo.", progress: progress)
+            case .separatingVoices:
+                working("Separando las voces de la llamada…",
+                        detail: "Reconoce a quien ya identificaste antes. Todo en esta Mac.", progress: nil)
             case .uploading:
                 working("Enviando la transcripción para análisis…", detail: nil, progress: nil)
             case let .finished(sessionId):

@@ -11,6 +11,8 @@ struct SettingsView: View {
     @AppStorage(RecordingService.keepAudioKey) private var keepAudio = false
     @AppStorage(RecordingService.voiceProcessingKey) private var voiceProcessing = false
     @AppStorage(AudioDevices.selectedMicKey) private var micUID = ""
+    @AppStorage(VoiceStore.enabledKey) private var diarize = true
+    @State private var voiceProfiles = VoiceStore.shared.profiles()
     @AppStorage(ObsidianExporter.rootKey) private var obsidianRoot = ""
     @AppStorage(ObsidianExporter.autoExportKey) private var obsidianAuto = false
 
@@ -40,6 +42,30 @@ struct SettingsView: View {
                 Button("Mostrar grabaciones en Finder") {
                     try? FileManager.default.createDirectory(at: RecordingService.recordingsDirectory, withIntermediateDirectories: true)
                     NSWorkspace.shared.open(RecordingService.recordingsDirectory)
+                }
+            }
+            Section("Voces") {
+                Toggle("Separar las voces de la llamada y reconocer a cada persona", isOn: $diarize)
+                Text("Al confirmar quién es cada voz en una sesión, su huella se guarda solo en esta Mac (nunca se sube) y la próxima vez se reconoce sola. La primera vez descarga el modelo de separación.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if voiceProfiles.isEmpty {
+                    Text("Sin huellas guardadas.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(voiceProfiles, id: \.personId) { p in
+                        LabeledContent(p.name) {
+                            HStack {
+                                Text("\(p.embeddings.count) \(p.embeddings.count == 1 ? "muestra" : "muestras")").foregroundStyle(.secondary)
+                                Button("Olvidar") {
+                                    try? VoiceStore.shared.forget(personId: p.personId)
+                                    voiceProfiles = VoiceStore.shared.profiles()
+                                }
+                            }
+                        }
+                    }
+                    Button("Borrar todas las huellas de voz", role: .destructive) {
+                        try? VoiceStore.shared.forgetAll()
+                        voiceProfiles = []
+                    }
                 }
             }
             Section("Obsidian") {
