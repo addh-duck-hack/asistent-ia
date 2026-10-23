@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -6,6 +7,10 @@ struct SettingsView: View {
     @State private var token = Keychain.read(AppSettings.tokenAccount) ?? ""
     @State private var testResult: String?
     @State private var testing = false
+    @AppStorage(TranscriptionService.modelKey) private var whisperModel = TranscriptionService.defaultModel
+    @AppStorage(RecordingService.keepAudioKey) private var keepAudio = false
+    @AppStorage(RecordingService.voiceProcessingKey) private var voiceProcessing = false
+    @AppStorage(AudioDevices.selectedMicKey) private var micUID = ""
 
     var body: some View {
         Form {
@@ -18,6 +23,21 @@ struct SettingsView: View {
                     Label("Esto es una llave de Anthropic: va solo en el servidor. Aquí pega el API_TOKEN.",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
+                }
+            }
+            Section("Grabación y transcripción") {
+                Picker("Modelo de transcripción", selection: $whisperModel) {
+                    ForEach(TranscriptionService.models, id: \.id) { Text($0.label).tag($0.id) }
+                }
+                Picker("Micrófono", selection: $micUID) {
+                    Text("Predeterminado del sistema").tag("")
+                    ForEach(AudioDevices.inputs()) { Text($0.name).tag($0.uid) }
+                }
+                Toggle("Cancelación de eco (experimental: puede dejar el micrófono en silencio)", isOn: $voiceProcessing)
+                Toggle("Conservar el audio después de subir la transcripción", isOn: $keepAudio)
+                Button("Mostrar grabaciones en Finder") {
+                    try? FileManager.default.createDirectory(at: RecordingService.recordingsDirectory, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(RecordingService.recordingsDirectory)
                 }
             }
             HStack {

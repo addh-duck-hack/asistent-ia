@@ -203,6 +203,7 @@ struct CreateSessionRequest: Encodable {
     let type: SessionType
     let title: String
     let date: Date
+    var durationSec: Int?
     var participants: [String]?
     let depth: AnalysisDepth
     let transcript: TranscriptPayload

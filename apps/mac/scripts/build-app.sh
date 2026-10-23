@@ -10,7 +10,7 @@ command -v xcodegen >/dev/null || { echo "Falta XcodeGen: brew install xcodegen"
 xcodegen generate --quiet
 
 xcodebuild -project AsistentIA.xcodeproj -scheme AsistentIA -configuration Release \
-  -derivedDataPath build -destination 'platform=macOS,arch=arm64' -quiet build
+  -derivedDataPath build -destination 'platform=macOS,arch=arm64' -allowProvisioningUpdates -quiet build
 
 APP="build/Build/Products/Release/Asistent IA.app"
 rm -rf dist && mkdir -p dist

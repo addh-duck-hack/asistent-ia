@@ -4,6 +4,7 @@ struct ContentView: View {
     @Environment(AppStore.self) private var store
     @State private var showNewProject = false
     @State private var showNewSession = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var store = store
@@ -16,6 +17,8 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
             .toolbar {
                 Button { showNewProject = true } label: { Label("Nuevo proyecto", systemImage: "folder.badge.plus") }
+                Button { openWindow(id: "recorder") } label: { Label("Grabar reunión", systemImage: "record.circle") }
+                    .help("Grabar reunión")
             }
         } content: {
             SessionListView()

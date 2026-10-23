@@ -1,11 +1,7 @@
-// Firma de la app. Sin certificado se firma "para correr localmente" (ad-hoc),
-// pero macOS pide de nuevo los permisos de micrófono/pantalla en cada build.
-//
-// Cuando inicies sesión con tu Apple ID en Xcode (Settings > Accounts), pon tu
-// Team ID aquí y cambia a firma automática:
-//   DEVELOPMENT_TEAM = ABCDE12345
-//   CODE_SIGN_STYLE = Automatic
-//   CODE_SIGN_IDENTITY = Apple Development
-DEVELOPMENT_TEAM =
-CODE_SIGN_STYLE = Manual
-CODE_SIGN_IDENTITY = -
+// Firma con el certificado gratuito "Apple Development" del Personal Team.
+// Con una firma estable, macOS conserva los permisos de micrófono y de audio
+// del sistema entre builds. (Sin certificado: CODE_SIGN_STYLE = Manual y
+// CODE_SIGN_IDENTITY = - para firmar ad-hoc.)
+DEVELOPMENT_TEAM = 3Q342PZ9XB
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development

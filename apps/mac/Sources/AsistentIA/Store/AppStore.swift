@@ -38,6 +38,16 @@ final class AppStore {
         }
     }
 
+    /// Abre una sesión concreta (por ejemplo, recién grabada).
+    func show(sessionId: String, projectId: String?) async {
+        if let projectId, projectId != selectedProjectId {
+            selectedProjectId = projectId
+        }
+        await loadSessions()
+        selectedSessionId = sessionId
+        await loadDetail()
+    }
+
     func loadSessions() async {
         guard let projectId = selectedProjectId else { sessions = []; return }
         await run { sessions = try await api.sessions(projectId: projectId) }
