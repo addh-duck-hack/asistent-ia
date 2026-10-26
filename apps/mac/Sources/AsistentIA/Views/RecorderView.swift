@@ -77,6 +77,10 @@ struct RecorderView: View {
                 }
             }
             .formStyle(.grouped)
+            // Alto fijo: un Form agrupado en una ventana .contentSize se encoge
+            // y solo deja ver Proyecto y Título.
+            .frame(height: 360)
+            .scrollDisabled(true)
             Text("Se graba tu micrófono y el audio de la llamada. Se transcribe en esta Mac y solo se envía el texto.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {

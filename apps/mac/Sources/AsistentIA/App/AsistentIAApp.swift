@@ -39,39 +39,44 @@ struct AsistentIAApp: App {
                 .environment(store)
                 .environment(recorder)
         }
-        .menuBarExtraStyle(.window)
     }
 }
 
-/// Panel de la barra superior: la misma vista de grabación que la ventana
-/// (proyecto, título, nivel, voces; detener o cancelar) más accesos rápidos.
 private struct MenuBarContent: View {
+    @Environment(AppStore.self) private var store
     @Environment(RecordingService.self) private var recorder
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(spacing: 0) {
-            RecorderView()
-            Divider()
-            HStack(spacing: 14) {
-                Button("Abrir Asistent IA") {
-                    openWindow(id: "main")
-                    NSApplication.shared.activate()
-                }
-                Button("Probar audio…") {
-                    openWindow(id: "audio-test")
-                    NSApplication.shared.activate()
-                }
-                .disabled(recorder.phase.isBusy)
-                Spacer()
-                SettingsLink { Text("Ajustes…") }
-                Button("Salir") { NSApplication.shared.terminate(nil) }
-                    .keyboardShortcut("q")
-            }
-            .buttonStyle(.link)
-            .font(.callout)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 10)
+        Button("Abrir Asistent IA") {
+            openWindow(id: "main")
+            NSApplication.shared.activate()
         }
+        if recorder.isRecording {
+            Button("Detener y analizar") {
+                openWindow(id: "recorder")
+                Task { await recorder.stopAndProcess() }
+            }
+            Button("Cancelar grabación…") {
+                // La confirmación está en la ventana de grabación.
+                openWindow(id: "recorder")
+                NSApplication.shared.activate()
+            }
+        } else {
+            Button("Grabar reunión…") {
+                openWindow(id: "recorder")
+                NSApplication.shared.activate()
+            }
+            .disabled(recorder.phase.isBusy)
+            Button("Probar audio…") {
+                openWindow(id: "audio-test")
+                NSApplication.shared.activate()
+            }
+            .disabled(recorder.phase.isBusy)
+        }
+        Divider()
+        SettingsLink { Text("Ajustes…") }
+        Button("Salir") { NSApplication.shared.terminate(nil) }
+            .keyboardShortcut("q")
     }
 }
