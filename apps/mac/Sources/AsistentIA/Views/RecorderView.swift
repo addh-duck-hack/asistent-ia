@@ -11,6 +11,8 @@ struct RecorderView: View {
     @State private var title = RecorderView.defaultTitle()
     @AppStorage("lastAnalysisDepth") private var depth: AnalysisDepth = .standard
     @AppStorage("recordingConsentAck") private var consent = false
+    @AppStorage(VoiceStore.enabledKey) private var separateVoices = true
+    @State private var confirmingCancel = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -22,12 +24,15 @@ struct RecorderView: View {
             case let .preparingModel(progress):
                 working("Preparando el modelo de transcripción…",
                         detail: "Se descarga una sola vez (~626 MB).", progress: progress)
+                cancelButton
             case let .transcribing(progress):
                 working("Transcribiendo en esta Mac…",
                         detail: "El audio no sale del equipo.", progress: progress)
+                cancelButton
             case .separatingVoices:
                 working("Separando las voces de la llamada…",
                         detail: "Reconoce a quien ya identificaste antes. Todo en esta Mac.", progress: nil)
+                cancelButton
             case .uploading:
                 working("Enviando la transcripción para análisis…", detail: nil, progress: nil)
             case let .finished(sessionId):
@@ -38,8 +43,9 @@ struct RecorderView: View {
         }
         .padding(24)
         .frame(width: 460)
+        .onChange(of: recorder.phase) { if !recorder.phase.isCancellable { confirmingCancel = false } }
         .task {
-            if store.projects.isEmpty { await store.loadProjects() }
+            if store.projects.isEmpty || store.profiles.isEmpty { await store.loadProjects() }
             if projectId == nil { projectId = store.selectedProjectId ?? store.projects.first?.id }
         }
     }
@@ -56,6 +62,11 @@ struct RecorderView: View {
                     ForEach(AnalysisDepth.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                // Qué modelo usa el nivel elegido (configurable en backend/.env).
+                Text([store.profile(for: depth).map { "\($0.modelName) · esfuerzo \($0.effort)" }, depth.hint]
+                    .compactMap { $0 }.joined(separator: " — "))
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Separar las voces de la llamada", isOn: $separateVoices)
                 Toggle("Avisé a los participantes que la reunión se graba", isOn: $consent)
                 LabeledContent("Micrófono") {
                     HStack {
@@ -73,7 +84,8 @@ struct RecorderView: View {
                 Button {
                     guard let projectId else { return }
                     let vocabulary = store.projects.first { $0.id == projectId }?.vocabulary ?? []
-                    Task { await recorder.start(.init(projectId: projectId, title: title, depth: depth, vocabulary: vocabulary)) }
+                    Task { await recorder.start(.init(projectId: projectId, title: title, depth: depth,
+                                                      vocabulary: vocabulary, separateVoices: separateVoices)) }
                 } label: {
                     Label("Comenzar a grabar", systemImage: "record.circle")
                 }
@@ -110,6 +122,7 @@ struct RecorderView: View {
                 Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
             }
             HStack {
+                cancelControl(label: "Cancelar…")
                 Spacer()
                 Button(role: .destructive) {
                     Task { await recorder.stopAndProcess() }
@@ -118,6 +131,33 @@ struct RecorderView: View {
                 }
                 .keyboardShortcut(.defaultAction)
             }
+        }
+    }
+
+    /// Cancelar mientras se procesa en la Mac (antes de enviar).
+    private var cancelButton: some View {
+        HStack {
+            Spacer()
+            cancelControl(label: "Cancelar sin enviar…")
+        }
+    }
+
+    /// Confirmación en dos pasos dentro de la vista (un diálogo cerraría el
+    /// panel de la barra superior).
+    @ViewBuilder
+    private func cancelControl(label: String) -> some View {
+        if confirmingCancel {
+            HStack(spacing: 8) {
+                Text("¿Descartar? Se borra el audio y no se envía nada.").font(.caption).foregroundStyle(.secondary)
+                Button("Descartar", role: .destructive) {
+                    confirmingCancel = false
+                    Task { await recorder.cancel() }
+                }
+                Button("Seguir") { confirmingCancel = false }
+            }
+        } else {
+            Button(label) { confirmingCancel = true }
+                .help("Descartar la grabación sin transcribir ni enviar nada")
         }
     }
 

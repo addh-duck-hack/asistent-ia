@@ -73,3 +73,12 @@ private let line = "Yo estuve trabajando en la London de Buenfin, de México, de
     store.purge(now: .now.addingTimeInterval(31 * 86_400))
     #expect(store.url(sessionId: "s1", track: .system) == nil)
 }
+
+@Test func onlyLocalPhasesCanBeCancelled() {
+    #expect(RecordingService.Phase.recording(since: .now).isCancellable)
+    #expect(RecordingService.Phase.transcribing(progress: 0.4).isCancellable)
+    #expect(RecordingService.Phase.separatingVoices.isCancellable)
+    #expect(!RecordingService.Phase.uploading.isCancellable) // la sesión ya se está creando
+    #expect(!RecordingService.Phase.idle.isCancellable)
+    #expect(!RecordingService.Phase.finished(sessionId: "s").isCancellable)
+}

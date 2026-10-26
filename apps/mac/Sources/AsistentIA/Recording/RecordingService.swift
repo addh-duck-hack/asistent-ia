@@ -9,6 +9,8 @@ struct RecordingMeta: Sendable {
     var depth: AnalysisDepth
     /// Vocabulario del proyecto: pista para Whisper.
     var vocabulary: [String] = []
+    /// Separar las voces de la llamada en esta grabación (por defecto, lo de Ajustes).
+    var separateVoices = VoiceStore.isEnabled
 }
 
 /// Coordina grabar → transcribir localmente → subir al backend.
@@ -28,6 +30,15 @@ final class RecordingService {
         var isBusy: Bool {
             switch self {
             case .recording, .preparingModel, .transcribing, .separatingVoices, .uploading: true
+            default: false
+            }
+        }
+
+        /// Se puede cancelar sin enviar nada: grabando o procesando en la Mac
+        /// (al subir ya es tarde: la sesión se está creando en el backend).
+        var isCancellable: Bool {
+            switch self {
+            case .recording, .preparingModel, .transcribing, .separatingVoices: true
             default: false
             }
         }
@@ -55,6 +66,7 @@ final class RecordingService {
     private var folder: URL?
     private var startedAt: Date?
     private var meterTask: Task<Void, Never>?
+    private var processTask: Task<String?, Never>?
     private var lastRecoveryAt: TimeInterval = 0
     private var recoveryAttempts = 0
     private let api = APIClient()
@@ -124,13 +136,46 @@ final class RecordingService {
         systemLevel = 0
         mic = nil
         system = nil
-        return await process()
+        return await runProcess()
     }
 
     /// Reintenta transcribir y subir la última grabación que falló.
     func retry() async {
         guard case .failed = phase, folder != nil else { return }
-        await process()
+        await runProcess()
+    }
+
+    /// Cancela la grabación o su procesamiento: borra el audio y no envía nada.
+    func cancel() async {
+        guard phase.isCancellable else { return }
+        if isRecording {
+            meterTask?.cancel()
+            mic?.stop()
+            await system?.stop()
+            mic = nil
+            system = nil
+        }
+        processTask?.cancel()
+        processTask = nil
+        if let folder { try? FileManager.default.removeItem(at: folder) }
+        micLevel = 0
+        systemLevel = 0
+        meta = nil
+        folder = nil
+        startedAt = nil
+        micSink = nil
+        systemSink = nil
+        micProblem = nil
+        warning = nil
+        phase = .idle
+    }
+
+    /// El procesamiento corre en su propia tarea para poder cancelarlo.
+    @discardableResult
+    private func runProcess() async -> String? {
+        let task = Task { await self.process() }
+        processTask = task
+        return await task.value
     }
 
     @discardableResult
@@ -141,8 +186,9 @@ final class RecordingService {
         do {
             phase = .preparingModel(progress: 0)
             try await TranscriptionService.shared.warmUp { p in
-                Task { @MainActor in self.phase = .preparingModel(progress: p) }
+                Task { @MainActor in if self.phase.isCancellable, self.meta != nil { self.phase = .preparingModel(progress: p) } }
             }
+            try Task.checkCancellation()
 
             // Primero el sistema (lo que dijeron los demás), luego el micrófono.
             let hasSystem = systemSink.seconds > 0.5
@@ -151,8 +197,9 @@ final class RecordingService {
             for (sink, offset) in tracks {
                 let share = 1.0 / Double(tracks.count)
                 phase = .transcribing(progress: offset)
+                try Task.checkCancellation()
                 results[sink.url] = try await TranscriptionService.shared.transcribe(sink.url, vocabulary: meta.vocabulary) { p in
-                    Task { @MainActor in self.phase = .transcribing(progress: offset + p * share) }
+                    Task { @MainActor in if self.phase.isCancellable, self.meta != nil { self.phase = .transcribing(progress: offset + p * share) } }
                 }
             }
 
@@ -160,7 +207,8 @@ final class RecordingService {
             // falla, se sigue con "Otros" como antes: nunca bloquea la sesión.
             var others = results[systemSink.url] ?? []
             var voices: [String: [Float]] = [:]
-            if hasSystem, !others.isEmpty, VoiceStore.isEnabled {
+            try Task.checkCancellation()
+            if hasSystem, !others.isEmpty, meta.separateVoices {
                 phase = .separatingVoices
                 if let diarization = try? await DiarizationService.shared.diarize(systemSink.url) {
                     (others, voices) = SpeakerLabeler.label(others, diarization: diarization, profiles: VoiceStore.shared.profiles())
@@ -170,6 +218,8 @@ final class RecordingService {
             let segments = TranscriptMerger.merge(me: results[micSink.url] ?? [], others: others, vocabulary: meta.vocabulary)
             guard !segments.isEmpty else { throw RecordingError.emptyTranscript }
 
+            // Último punto para cancelar: después ya se crea la sesión.
+            try Task.checkCancellation()
             phase = .uploading
             let session = try await api.createSession(CreateSessionRequest(
                 projectId: meta.projectId,
@@ -194,6 +244,8 @@ final class RecordingService {
             phase = .finished(sessionId: session.id)
             return session.id
         } catch {
+            // Cancelado: cancel() ya limpió todo y dejó la fase en reposo.
+            if Task.isCancelled || error is CancellationError { return nil }
             // El audio se conserva para poder reintentar.
             phase = .failed("\(error.localizedDescription) El audio quedó en \(folder.path).")
             return nil
