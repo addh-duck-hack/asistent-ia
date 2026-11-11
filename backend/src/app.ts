@@ -4,7 +4,6 @@ import { ZodError } from "zod";
 import { requireToken } from "./middleware/auth.js";
 import { projectsRouter } from "./routes/projects.js";
 import { peopleRouter } from "./routes/people.js";
-import { profileRouter } from "./routes/profile.js";
 import { sessionsRouter } from "./routes/sessions.js";
 import { actionItemsRouter } from "./routes/actionItems.js";
 import { digestsRouter } from "./routes/digests.js";
@@ -26,7 +25,6 @@ export function createApp() {
 
   app.use("/api", requireToken);
   app.use("/api/projects", projectsRouter);
-  app.use("/api/people", profileRouter);
   app.use("/api/people", peopleRouter);
   app.use("/api/sessions", sessionsRouter);
   app.use("/api/action-items", actionItemsRouter);

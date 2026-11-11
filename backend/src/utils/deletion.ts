@@ -19,11 +19,6 @@ type Id = string | Types.ObjectId;
  */
 export async function deleteSessions(sessionIds: Id[]) {
   if (sessionIds.length === 0) return { sessions: 0, actionItems: 0 };
-  // Las sugerencias de ánimo sin confirmar que salieron de estas sesiones se van con ellas.
-  await PersonModel.updateMany(
-    { "moodSuggestions.sessionId": { $in: sessionIds } },
-    { $pull: { moodSuggestions: { sessionId: { $in: sessionIds } } } },
-  );
   const [, , items, sessions] = await Promise.all([
     TranscriptModel.deleteMany({ sessionId: { $in: sessionIds } }),
     AnalysisModel.deleteMany({ sessionId: { $in: sessionIds } }),

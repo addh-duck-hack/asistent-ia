@@ -105,7 +105,8 @@ it("el vocabulario del proyecto se limpia y llega a Claude", async () => {
     openItems: [],
   });
   expect(req.messages[0]!.content[0]!.text).toContain("Vocabulario: Petco, Toks");
-  const { ANALYSIS_SYSTEM_PROMPT } = await import("./llm/prompts/analysis.js");
+  const { ANALYSIS_PROMPT_VERSION, ANALYSIS_SYSTEM_PROMPT } = await import("./llm/prompts/analysis.js");
+  expect(ANALYSIS_PROMPT_VERSION).toBe("analysis-v7");
   expect(ANALYSIS_SYSTEM_PROMPT).toContain("vocabulario");
 
   const { buildDirectory } = await import("./llm/ask.js");
