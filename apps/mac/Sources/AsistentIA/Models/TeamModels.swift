@@ -13,9 +13,22 @@ struct TeamMember: Codable, Identifiable, Hashable {
     let active: Bool?
     let projects: [TrackedItem.ProjectRef]?
     let counts: Counts?
+    var birthday: Date?
+    var startDate: Date?
 
     enum CodingKeys: String, CodingKey {
-        case id = "_id", name, role, email, aliases, active, projects, counts
+        case id = "_id", name, role, email, aliases, active, projects, counts, birthday, startDate
+    }
+
+    /// Cumpleaños o aniversario laboral en los próximos 7 días, para avisar en la barra lateral.
+    func upcomingDate(now: Date = .now) -> String? {
+        if let birthday, let next = CalendarDay.nextAnniversary(of: birthday, now: now), next.days <= 7 {
+            return "🎂 Cumpleaños \(CalendarDay.countdown(next.days))"
+        }
+        if let startDate, let next = CalendarDay.nextAnniversary(of: startDate, now: now), next.days <= 7, next.years > 0 {
+            return "🎉 Cumple \(next.years) \(next.years == 1 ? "año" : "años") en el equipo \(CalendarDay.countdown(next.days))"
+        }
+        return nil
     }
 
     var aliasLine: String? { aliases.isEmpty ? nil : "también: \(aliases.joined(separator: ", "))" }

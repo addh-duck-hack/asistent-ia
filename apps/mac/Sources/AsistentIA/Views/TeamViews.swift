@@ -8,6 +8,9 @@ struct PersonRow: View {
     var body: some View {
         HStack {
             Label(person.name, systemImage: "person.crop.circle")
+            if let upcoming = person.upcomingDate() {
+                Text(String(upcoming.prefix(1))).help(String(upcoming.dropFirst(2)))
+            }
             Spacer()
             if let c = person.counts {
                 if c.overdue > 0 {
@@ -257,6 +260,7 @@ struct PersonContentView: View {
                     case .progress: PersonProgressView()
                     case .mentions: PersonMentionsView()
                     case .oneOnOne: OneOnOneListView()
+                    case .profile: ProfileSectionList()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -456,6 +460,8 @@ struct PersonDetailView: View {
             } else {
                 ContentUnavailableView("Sin preparación seleccionada", systemImage: "person.2.wave.2")
             }
+        case .profile:
+            ProfileDetailView()
         }
     }
 }

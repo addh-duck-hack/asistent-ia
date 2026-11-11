@@ -34,9 +34,28 @@ final class AppStore {
     }
 
     enum PersonTab: String, CaseIterable, Identifiable {
-        case items = "Pendientes", progress = "Avance", mentions = "Menciones", oneOnOne = "1:1"
+        case items = "Pendientes", progress = "Avance", mentions = "Menciones", oneOnOne = "1:1", profile = "Perfil"
         var id: String { rawValue }
     }
+
+    enum ProfileSection: String, CaseIterable, Identifiable {
+        case info = "Datos", salary = "Sueldo", vacations = "Vacaciones", overtime = "Horas extra", mood = "Ánimo"
+        var id: String { rawValue }
+        var icon: String {
+            switch self {
+            case .info: "person.text.rectangle"
+            case .salary: "banknote"
+            case .vacations: "beach.umbrella"
+            case .overtime: "clock.badge.exclamationmark"
+            case .mood: "face.smiling"
+            }
+        }
+    }
+
+    var profile: PersonProfile?
+    var profileSection: ProfileSection? = .info
+    /// El sueldo se muestra oculto hasta pedirlo (por si se comparte pantalla).
+    var revealSalary = false
 
     var people: [TeamMember] = []
     var selectedPersonId: String?
@@ -373,7 +392,23 @@ final class AppStore {
         case .oneOnOne:
             await run { oneOnOnes = try await api.oneOnOnes(personId: id) }
             if selectedOneOnOneId == nil { selectedOneOnOneId = oneOnOnes.first?.id }
+        case .profile:
+            await run { profile = try await api.profile(personId: id) }
         }
+    }
+
+    /// Cambia algo del perfil de la persona seleccionada y lo refresca.
+    @discardableResult
+    func updateProfile(_ change: (APIClient, String) async throws -> PersonProfile) async -> Bool {
+        guard let id = selectedPersonId else { return false }
+        return await run { profile = try await change(api, id) }
+    }
+
+    /// Fechas y datos generales: también refresca la barra lateral (cumpleaños).
+    func saveProfile(_ patch: ProfilePatch) async -> Bool {
+        let ok = await updateProfile { api, id in try await api.profile(personId: id, "PATCH", "profile", body: patch) }
+        if ok { await loadPeople() }
+        return ok
     }
 
     func prepareOneOnOne() async {

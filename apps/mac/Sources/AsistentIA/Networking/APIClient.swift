@@ -195,6 +195,20 @@ struct APIClient: Sendable {
     }
 
     /// DELETE genérico; el backend responde con lo que borró (se ignora).
+    // MARK: Perfil de RH (todas las llamadas devuelven el perfil completo)
+
+    func profile(personId: String) async throws -> PersonProfile {
+        try await request("/api/people/\(personId)/profile", as: PersonProfile.self)
+    }
+
+    func profile<B: Encodable>(personId: String, _ method: String, _ path: String, body: B) async throws -> PersonProfile {
+        try await request("/api/people/\(personId)/\(path)", method: method, body: body, as: PersonProfile.self)
+    }
+
+    func profileDelete(personId: String, _ path: String) async throws -> PersonProfile {
+        try await request("/api/people/\(personId)/\(path)", method: "DELETE", as: PersonProfile.self)
+    }
+
     func delete(_ path: String) async throws {
         struct Ignored: Decodable {}
         _ = try await request(path, method: "DELETE", as: Ignored.self)

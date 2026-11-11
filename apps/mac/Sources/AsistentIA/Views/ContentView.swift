@@ -184,6 +184,8 @@ struct ContentView: View {
             store.selectedItemId = nil
             store.selectedOneOnOneId = nil
             store.progress = nil
+            store.profile = nil
+            store.revealSalary = false
             Task { await store.loadPersonTab() }
         }
         .onChange(of: store.personTab) {
