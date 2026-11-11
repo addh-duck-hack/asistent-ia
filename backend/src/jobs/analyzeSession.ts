@@ -1,6 +1,7 @@
 import {
   ActionItemModel,
   AnalysisModel,
+  PersonModel,
   ProjectModel,
   SessionModel,
   TranscriptModel,
@@ -40,6 +41,31 @@ export async function applyFollowups(
         $set: { status: FOLLOWUP_STATUS[f.status] },
         $push: { history: { sessionId, status: FOLLOWUP_STATUS[f.status], note: f.note, at: new Date() } },
       },
+    );
+  }
+}
+
+const MOOD_LEVEL = { very_low: 1, low: 2, neutral: 3, good: 4, very_good: 5 } as const;
+
+/**
+ * Guarda como sugerencias en el perfil de cada persona lo que Claude notó de
+ * su ánimo. Idempotente al re-analizar: reemplaza las de esta sesión y no
+ * vuelve a sugerir a quien el líder ya le confirmó el ánimo de esta sesión.
+ */
+export async function applyMoodSignals(
+  session: { _id: Types.ObjectId; date: Date },
+  signals: Analysis["mood_signals"] | undefined,
+  resolveOwner: (owner: string | null | undefined) => string | undefined,
+) {
+  await PersonModel.updateMany({ "moodSuggestions.sessionId": session._id }, { $pull: { moodSuggestions: { sessionId: session._id } } });
+  const seen = new Set<string>();
+  for (const signal of signals ?? []) {
+    const personId = resolveOwner(signal.person);
+    if (!personId || seen.has(personId)) continue;
+    seen.add(personId);
+    await PersonModel.updateOne(
+      { _id: personId, "moods.sessionId": { $ne: session._id } },
+      { $push: { moodSuggestions: { sessionId: session._id, date: session.date, level: MOOD_LEVEL[signal.mood], evidence: signal.evidence } } },
     );
   }
 }
@@ -127,6 +153,7 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
         })),
       );
     }
+    await applyMoodSignals(session, result.mood_signals, resolveOwner);
 
     session.status = "done";
     await session.save();
