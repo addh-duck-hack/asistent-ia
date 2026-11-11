@@ -12,6 +12,7 @@ struct AsistentIAApp: App {
         Window("Asistent IA", id: "main") {
             ContentView()
                 .environment(store)
+                .environment(recorder)
                 .frame(minWidth: 1000, minHeight: 620)
         }
 
@@ -51,6 +52,12 @@ private struct MenuBarContent: View {
         Button("Abrir Asistent IA") {
             openWindow(id: "main")
             NSApplication.shared.activate()
+        }
+        if !recorder.interrupted.isEmpty, !recorder.phase.isBusy {
+            Button("Recuperar grabación interrumpida…") {
+                openWindow(id: "recorder")
+                NSApplication.shared.activate()
+            }
         }
         if recorder.isRecording {
             Button("Detener y analizar") {

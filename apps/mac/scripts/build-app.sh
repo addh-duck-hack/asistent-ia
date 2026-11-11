@@ -27,6 +27,12 @@ for arg in "$@"; do
         pgrep -qf "/Applications/Asistent IA.app/Contents/MacOS" || break
         sleep 0.5
       done
+      # pgrep ve todas las cuentas: si sigue abierta (p. ej. en otra sesión de
+      # macOS, quizá grabando), reemplazarla la cerraría a media llamada.
+      if pgrep -qf "/Applications/Asistent IA.app/Contents/MacOS"; then
+        echo "Asistent IA sigue abierta (¿en otra sesión de usuario?). Ciérrala allí y vuelve a instalar." >&2
+        exit 1
+      fi
       rm -rf "/Applications/Asistent IA.app"
       cp -R "dist/Asistent IA.app" /Applications/
       echo "Instalada en /Applications/Asistent IA.app"

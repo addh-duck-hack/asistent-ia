@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AppStore.self) private var store
+    @Environment(RecordingService.self) private var recorder
     @State private var showNewProject = false
     @State private var showNewPerson = false
     @State private var showNewSession = false
@@ -165,6 +166,9 @@ struct ContentView: View {
         }
         .task {
             SessionAudio.shared.purge()
+            // Si la app se cerró a mitad de una grabación, se ofrece recuperarla.
+            recorder.scanInterrupted()
+            if !recorder.interrupted.isEmpty { openWindow(id: "recorder") }
             await store.loadProjects()
         }
         .onChange(of: store.selectedProjectId) {
@@ -230,6 +234,7 @@ struct SessionListView: View {
                             .disabled(session.status != .done)
                         Button("Exportar a Obsidian") { Task { await store.export(session: session) } }
                             .disabled(session.status != .done)
+                        MoveToProjectMenu(session: session)
                         Divider()
                         Button("Eliminar sesión…", role: .destructive) { store.pendingDeletion = .session(session) }
                     }
@@ -238,6 +243,24 @@ struct SessionListView: View {
         }
         .navigationTitle(store.selectedProject?.name ?? "Sesiones")
         .refreshable { await store.loadSessions() }
+    }
+}
+
+/// "Mover a proyecto": para una sesión que se grabó o pegó en el proyecto equivocado.
+struct MoveToProjectMenu: View {
+    @Environment(AppStore.self) private var store
+    let session: Session
+
+    var body: some View {
+        Menu {
+            ForEach(store.projects.filter { $0.id != session.projectId }) { project in
+                Button(project.name) { Task { await store.move(session: session, to: project.id) } }
+            }
+        } label: {
+            Label("Mover a proyecto", systemImage: "folder.badge.gearshape")
+        }
+        .disabled(session.status.isInProgress || store.projects.count < 2)
+        .help("Pasa la sesión y sus pendientes al otro proyecto y la re-analiza con su contexto")
     }
 }
 

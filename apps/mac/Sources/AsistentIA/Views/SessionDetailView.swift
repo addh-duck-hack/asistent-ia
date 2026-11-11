@@ -89,6 +89,8 @@ struct SessionDetailView: View {
             .disabled(session.status.isInProgress)
             .help("Clic: mismo nivel · Flecha: elegir otro nivel")
 
+            MoveToProjectMenu(session: session)
+
             Button(role: .destructive) {
                 store.pendingDeletion = .session(session)
             } label: {

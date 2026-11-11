@@ -93,6 +93,13 @@ struct APIClient: Sendable {
         return try await request("/api/sessions/\(sessionId)/reanalyze", method: "POST", body: Body(depth: depth), as: Session.self)
     }
 
+    /// Mueve la sesión a otro proyecto; el backend la re-analiza con ese contexto.
+    func moveSession(id: String, to projectId: String) async throws {
+        struct Body: Encodable { let projectId: String }
+        struct Ignored: Decodable {}
+        _ = try await request("/api/sessions/\(id)/move", method: "POST", body: Body(projectId: projectId), as: Ignored.self)
+    }
+
     func actionItems(projectId: String?, statuses: [ItemStatus]) async throws -> [TrackedItem] {
         var q = URLComponents()
         q.queryItems = [URLQueryItem(name: "status", value: statuses.map(\.rawValue).joined(separator: ","))]

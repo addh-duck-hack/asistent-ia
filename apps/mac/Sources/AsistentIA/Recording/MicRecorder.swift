@@ -18,6 +18,12 @@ final class MicRecorder: @unchecked Sendable {
     private var extraSinks: [AudioFileSink] = []
     private var engine: AVAudioEngine?
     private var observer: NSObjectProtocol?
+    /// Reinicios por cambio de dispositivo: se agrupan y se reintentan aquí.
+    private let restartQueue = DispatchQueue(label: "asistent.mic.restart")
+    private var pendingRestart: DispatchWorkItem?
+    /// Esperas entre reintentos: unos audífonos Bluetooth que se reconectan
+    /// tardan varios segundos en estar listos y mandan varios avisos seguidos.
+    static let restartDelays: [Double] = [0.8, 1.5, 3, 5, 8, 13]
     private var deviceUID: String?
     private var stopped = false
     private(set) var voiceProcessing = false
@@ -109,36 +115,76 @@ final class MicRecorder: @unchecked Sendable {
             }
         }
 
+        // Mientras un dispositivo se conecta o desconecta, su formato puede ser 0 Hz.
+        let hardware = input.inputFormat(forBus: 0)
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { throw MicError.deviceUnavailable(deviceName) }
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-            guard let self else { return }
-            self.sink.append(buffer)
-            self.extraLock.lock()
-            let extras = self.extraSinks
-            self.extraLock.unlock()
-            for extra in extras { extra.append(buffer) }
+        guard hardware.sampleRate > 0, hardware.channelCount > 0, format.sampleRate > 0, format.channelCount > 0 else {
+            throw MicError.deviceUnavailable(deviceName)
         }
-        engine.prepare()
-        try engine.start()
+        // installTap y start lanzan excepciones de Objective-C si el dispositivo
+        // cambió entre la lectura del formato y este punto (se veía al
+        // desconectarse unos audífonos): se convierten en un error normal.
+        var startError: Error?
+        do {
+            try ObjCExceptionCatcher.catching {
+                input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+                    guard let self else { return }
+                    self.sink.append(buffer)
+                    self.extraLock.lock()
+                    let extras = self.extraSinks
+                    self.extraLock.unlock()
+                    for extra in extras { extra.append(buffer) }
+                }
+                engine.prepare()
+                do { try engine.start() } catch { startError = error }
+            }
+        } catch {
+            startError = error
+        }
+        if let startError {
+            _ = try? ObjCExceptionCatcher.catching { input.removeTap(onBus: 0); engine.stop() }
+            throw startError
+        }
 
         observer = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
         ) { [weak self] _ in
-            guard let self else { return }
-            // Se reinicia fuera del hilo de la notificación.
-            DispatchQueue.global(qos: .userInitiated).async {
-                try? self.restart()
-            }
+            self?.scheduleRestart()
         }
         self.engine = engine
+    }
+
+    /// Reinicia tras un cambio de dispositivo. Los avisos seguidos se agrupan en
+    /// uno, y si el dispositivo aún no está listo se reintenta con más espera.
+    /// Mientras tanto la grabación sigue (el audio de la llamada no se detiene).
+    private func scheduleRestart(attempt: Int = 0) {
+        restartQueue.async { [weak self] in
+            guard let self else { return }
+            self.pendingRestart?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                do {
+                    try self.restart()
+                } catch where attempt + 1 < Self.restartDelays.count {
+                    self.scheduleRestart(attempt: attempt + 1)
+                } catch {
+                    // Se rinde: el vigilante de RecordingService avisa en la interfaz.
+                }
+            }
+            self.pendingRestart = work
+            self.restartQueue.asyncAfter(deadline: .now() + Self.restartDelays[attempt], execute: work)
+        }
     }
 
     private func tearDown() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
-        engine?.inputNode.removeTap(onBus: 0)
-        engine?.stop()
+        if let engine {
+            _ = try? ObjCExceptionCatcher.catching {
+                engine.inputNode.removeTap(onBus: 0)
+                engine.stop()
+            }
+        }
         engine = nil
     }
 }

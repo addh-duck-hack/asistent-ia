@@ -506,6 +506,13 @@ final class AppStore {
         }
     }
 
+    /// Para sesiones guardadas en el proyecto equivocado: la mueve con sus
+    /// pendientes, se re-analiza allá y se muestra en el nuevo proyecto.
+    func move(session: Session, to projectId: String) async {
+        let ok = await run { try await api.moveSession(id: session.id, to: projectId) }
+        if ok { await show(sessionId: session.id, projectId: projectId) }
+    }
+
     func reanalyze(depth: AnalysisDepth? = nil) async {
         guard let id = selectedSessionId else { return }
         await run { _ = try await api.reanalyze(sessionId: id, depth: depth) }

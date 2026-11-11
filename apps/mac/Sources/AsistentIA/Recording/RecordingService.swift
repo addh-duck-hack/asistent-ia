@@ -3,7 +3,7 @@ import Foundation
 import Observation
 
 /// Datos de la reunión que se va a grabar.
-struct RecordingMeta: Sendable {
+struct RecordingMeta: Codable, Sendable {
     var projectId: String
     var title: String
     var depth: AnalysisDepth
@@ -11,6 +11,24 @@ struct RecordingMeta: Sendable {
     var vocabulary: [String] = []
     /// Separar las voces de la llamada en esta grabación (por defecto, lo de Ajustes).
     var separateVoices = VoiceStore.isEnabled
+}
+
+/// Lo que se guarda junto al audio al empezar (meta.json), para poder recuperar
+/// la grabación si la app se cierra a la mitad.
+struct RecordingManifest: Codable {
+    var meta: RecordingMeta
+    var startedAt: Date
+}
+
+/// Grabación que quedó a medias (la app se cerró) y se puede transcribir y enviar.
+struct InterruptedRecording: Identifiable, Equatable {
+    let folder: URL
+    let manifest: RecordingManifest
+    let seconds: Double
+    /// Grabada con una versión sin meta.json: hay que elegir proyecto y título.
+    var needsProject = false
+    var id: String { folder.path }
+    static func == (a: Self, b: Self) -> Bool { a.folder == b.folder }
 }
 
 /// Coordina grabar → transcribir localmente → subir al backend.
@@ -58,6 +76,8 @@ final class RecordingService {
     private(set) var micDeviceName = "—"
     private(set) var micRestarts = 0
     private(set) var meta: RecordingMeta?
+    /// Grabaciones que quedaron a medias, encontradas al abrir la app.
+    private(set) var interrupted: [InterruptedRecording] = []
 
     private var mic: MicRecorder?
     private var system: SystemAudioRecorder?
@@ -65,6 +85,8 @@ final class RecordingService {
     private var systemSink: AudioFileSink?
     private var folder: URL?
     private var startedAt: Date?
+    /// Pistas que se van a procesar (de la grabación recién detenida o recuperada).
+    private var tracks: (mic: URL, system: URL, micSeconds: Double, systemSeconds: Double)?
     private var meterTask: Task<Void, Never>?
     private var processTask: Task<String?, Never>?
     private var lastRecoveryAt: TimeInterval = 0
@@ -72,6 +94,12 @@ final class RecordingService {
     private let api = APIClient()
 
     var isRecording: Bool { if case .recording = phase { true } else { false } }
+
+    static let manifestName = "meta.json"
+    /// Marca de una carpeta conservada (Ajustes → conservar audio) que ya se envió.
+    static let sentName = "enviada"
+    /// Carpetas sin meta.json más recientes que esto se ofrecen para recuperar.
+    static let orphanMaxAge: TimeInterval = 14 * 86_400
 
     static var recordingsDirectory: URL {
         URL.applicationSupportDirectory.appending(path: "AsistentIA/Recordings", directoryHint: .isDirectory)
@@ -92,6 +120,8 @@ final class RecordingService {
                 .replacingOccurrences(of: ":", with: "-")
             let folder = Self.recordingsDirectory.appending(path: stamp, directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try JSONEncoder().encode(RecordingManifest(meta: meta, startedAt: .now))
+                .write(to: folder.appending(path: Self.manifestName))
 
             let micSink = try AudioFileSink(url: folder.appending(path: "mic.wav"))
             let systemSink = try AudioFileSink(url: folder.appending(path: "system.wav"))
@@ -136,7 +166,68 @@ final class RecordingService {
         systemLevel = 0
         mic = nil
         system = nil
+        if let micSink, let systemSink {
+            tracks = (micSink.url, systemSink.url, micSink.seconds, systemSink.seconds)
+        }
         return await runProcess()
+    }
+
+    /// Busca grabaciones que quedaron a medias: carpetas con meta.json y, de
+    /// versiones anteriores a él, carpetas recientes con audio que nunca se enviaron.
+    func scanInterrupted(now: Date = .now) {
+        guard !phase.isBusy else { return }
+        let fm = FileManager.default
+        let folders = (try? fm.contentsOfDirectory(at: Self.recordingsDirectory, includingPropertiesForKeys: [.creationDateKey])) ?? []
+        interrupted = folders.compactMap { folder in
+            guard folder != self.folder, folder.lastPathComponent != "sessions",
+                  !fm.fileExists(atPath: folder.appending(path: Self.sentName).path) else { return nil }
+            var manifest: RecordingManifest
+            var needsProject = false
+            if let data = try? Data(contentsOf: folder.appending(path: Self.manifestName)),
+               let decoded = try? JSONDecoder().decode(RecordingManifest.self, from: data) {
+                manifest = decoded
+            } else {
+                let created = (try? folder.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? now
+                guard now.timeIntervalSince(created) < Self.orphanMaxAge else { return nil }
+                manifest = RecordingManifest(meta: RecordingMeta(projectId: "", title: "Grabación recuperada", depth: .standard),
+                                             startedAt: created)
+                needsProject = true
+            }
+            let seconds = ["mic.wav", "system.wav"].map { name -> Double in
+                let url = folder.appending(path: name)
+                try? WAVRepair.repair(url)
+                return (try? AVAudioFile(forReading: url)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+            }.max() ?? 0
+            guard seconds > 1 else { return nil }
+            return InterruptedRecording(folder: folder, manifest: manifest, seconds: seconds, needsProject: needsProject)
+        }
+        .sorted { $0.manifest.startedAt > $1.manifest.startedAt }
+    }
+
+    /// Transcribe y envía lo que alcanzó a grabarse antes de que la app se cerrara.
+    @discardableResult
+    func recover(_ item: InterruptedRecording, meta override: RecordingMeta? = nil) async -> String? {
+        guard !phase.isBusy else { return nil }
+        let micURL = item.folder.appending(path: "mic.wav"), systemURL = item.folder.appending(path: "system.wav")
+        func seconds(_ url: URL) -> Double {
+            (try? AVAudioFile(forReading: url)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 0
+        }
+        interrupted.removeAll { $0 == item }
+        let meta = override ?? item.manifest.meta
+        guard !meta.projectId.isEmpty else { return nil }
+        self.meta = meta
+        try? JSONEncoder().encode(RecordingManifest(meta: meta, startedAt: item.manifest.startedAt))
+            .write(to: item.folder.appending(path: Self.manifestName))
+        folder = item.folder
+        startedAt = item.manifest.startedAt
+        tracks = (micURL, systemURL, seconds(micURL), seconds(systemURL))
+        warning = nil
+        return await runProcess()
+    }
+
+    func discard(_ item: InterruptedRecording) {
+        try? FileManager.default.removeItem(at: item.folder)
+        interrupted.removeAll { $0 == item }
     }
 
     /// Reintenta transcribir y subir la última grabación que falló.
@@ -165,6 +256,7 @@ final class RecordingService {
         startedAt = nil
         micSink = nil
         systemSink = nil
+        tracks = nil
         micProblem = nil
         warning = nil
         phase = .idle
@@ -180,8 +272,8 @@ final class RecordingService {
 
     @discardableResult
     private func process() async -> String? {
-        guard let meta, let folder, let micSink, let systemSink, let startedAt else { return nil }
-        let durationSec = Int(max(micSink.seconds, systemSink.seconds))
+        guard let meta, let folder, let tracks, let startedAt else { return nil }
+        let durationSec = Int(max(tracks.micSeconds, tracks.systemSeconds))
 
         do {
             phase = .preparingModel(progress: 0)
@@ -191,31 +283,31 @@ final class RecordingService {
             try Task.checkCancellation()
 
             // Primero el sistema (lo que dijeron los demás), luego el micrófono.
-            let hasSystem = systemSink.seconds > 0.5
-            let tracks: [(AudioFileSink, Double)] = hasSystem ? [(systemSink, 0), (micSink, 0.5)] : [(micSink, 0)]
+            let hasSystem = tracks.systemSeconds > 0.5
+            let order: [(URL, Double)] = hasSystem ? [(tracks.system, 0), (tracks.mic, 0.5)] : [(tracks.mic, 0)]
             var results: [URL: [TimedText]] = [:]
-            for (sink, offset) in tracks {
-                let share = 1.0 / Double(tracks.count)
+            for (url, offset) in order {
+                let share = 1.0 / Double(order.count)
                 phase = .transcribing(progress: offset)
                 try Task.checkCancellation()
-                results[sink.url] = try await TranscriptionService.shared.transcribe(sink.url, vocabulary: meta.vocabulary) { p in
+                results[url] = try await TranscriptionService.shared.transcribe(url, vocabulary: meta.vocabulary) { p in
                     Task { @MainActor in if self.phase.isCancellable, self.meta != nil { self.phase = .transcribing(progress: offset + p * share) } }
                 }
             }
 
             // Separar las voces de la llamada y reconocer a quien ya se conoce. Si
             // falla, se sigue con "Otros" como antes: nunca bloquea la sesión.
-            var others = results[systemSink.url] ?? []
+            var others = results[tracks.system] ?? []
             var voices: [String: [Float]] = [:]
             try Task.checkCancellation()
             if hasSystem, !others.isEmpty, meta.separateVoices {
                 phase = .separatingVoices
-                if let diarization = try? await DiarizationService.shared.diarize(systemSink.url) {
+                if let diarization = try? await DiarizationService.shared.diarize(tracks.system) {
                     (others, voices) = SpeakerLabeler.label(others, diarization: diarization, profiles: VoiceStore.shared.profiles())
                 }
             }
 
-            let segments = TranscriptMerger.merge(me: results[micSink.url] ?? [], others: others, vocabulary: meta.vocabulary)
+            let segments = TranscriptMerger.merge(me: results[tracks.mic] ?? [], others: others, vocabulary: meta.vocabulary)
             guard !segments.isEmpty else { throw RecordingError.emptyTranscript }
 
             // Último punto para cancelar: después ya se crea la sesión.
@@ -234,10 +326,15 @@ final class RecordingService {
             if !voices.isEmpty { try? VoiceStore.shared.saveSessionVoices(session.id, voices) }
             // Copia comprimida (30 días) para escuchar voces y revisar correcciones.
             try? SessionAudio.shared.save(sessionId: session.id,
-                                          tracks: hasSystem ? [.mic: micSink.url, .system: systemSink.url] : [.mic: micSink.url])
-            if !(UserDefaults.standard.bool(forKey: Self.keepAudioKey)) {
+                                          tracks: hasSystem ? [.mic: tracks.mic, .system: tracks.system] : [.mic: tracks.mic])
+            if UserDefaults.standard.bool(forKey: Self.keepAudioKey) {
+                // Se conservan los WAV, pero ya no es una grabación pendiente de recuperar.
+                try? FileManager.default.removeItem(at: folder.appending(path: Self.manifestName))
+                FileManager.default.createFile(atPath: folder.appending(path: Self.sentName).path, contents: Data())
+            } else {
                 try? FileManager.default.removeItem(at: folder)
             }
+            self.tracks = nil
             self.meta = nil
             self.folder = nil
             self.startedAt = nil

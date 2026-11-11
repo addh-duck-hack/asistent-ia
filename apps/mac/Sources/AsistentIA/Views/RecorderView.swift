@@ -52,6 +52,7 @@ struct RecorderView: View {
 
     private var setup: some View {
         Group {
+            ForEach(recorder.interrupted) { item in InterruptedBanner(item: item) }
             Text("Grabar reunión").font(.title2.bold())
             Form {
                 Picker("Proyecto", selection: $projectId) {
@@ -234,5 +235,66 @@ private struct LevelMeter: View {
             }
             .frame(height: 6)
         }
+    }
+}
+
+/// Grabación que quedó a medias porque la app se cerró: se puede transcribir y
+/// enviar lo que alcanzó a grabarse, o descartar.
+private struct InterruptedBanner: View {
+    @Environment(RecordingService.self) private var recorder
+    @Environment(AppStore.self) private var store
+    let item: InterruptedRecording
+    @State private var confirmingDiscard = false
+    // Solo para grabaciones de versiones sin meta.json.
+    @State private var projectId: String?
+    @State private var title = ""
+
+    private var when: String {
+        "\(item.manifest.startedAt.formatted(date: .abbreviated, time: .shortened)) · \(Duration.seconds(item.seconds).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated)))"
+    }
+
+    var body: some View {
+        let m = item.manifest
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Grabación interrumpida", systemImage: "exclamationmark.arrow.circlepath")
+                .font(.headline).foregroundStyle(.orange)
+            if item.needsProject {
+                Text(when).font(.callout)
+                HStack {
+                    Picker("Proyecto", selection: $projectId) {
+                        Text("Elige…").tag(String?.none)
+                        ForEach(store.projects) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    TextField("Título", text: $title).textFieldStyle(.roundedBorder)
+                }
+            } else {
+                Text("«\(m.meta.title)» · \(store.projects.first { $0.id == m.meta.projectId }?.name ?? "proyecto") · \(when)")
+                    .font(.callout)
+            }
+            Text("La app se cerró mientras se grababa. El audio hasta ese momento sigue en esta Mac.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                if confirmingDiscard {
+                    Text("¿Borrar el audio?").font(.caption)
+                    Button("Borrar", role: .destructive) { recorder.discard(item) }
+                    Button("No") { confirmingDiscard = false }
+                } else {
+                    Button("Descartar…") { confirmingDiscard = true }
+                }
+                Spacer()
+                Button("Transcribir y enviar") { Task { await recorder.recover(item, meta: chosenMeta) } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(item.needsProject && (projectId == nil || title.trimmingCharacters(in: .whitespaces).isEmpty))
+            }
+        }
+        .padding(12)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .onAppear { if title.isEmpty { title = "Reunión del \(item.manifest.startedAt.formatted(date: .abbreviated, time: .omitted))" } }
+    }
+
+    private var chosenMeta: RecordingMeta? {
+        guard item.needsProject, let projectId else { return nil }
+        return RecordingMeta(projectId: projectId, title: title.trimmingCharacters(in: .whitespaces), depth: .standard,
+                             vocabulary: store.projects.first { $0.id == projectId }?.vocabulary ?? [])
     }
 }

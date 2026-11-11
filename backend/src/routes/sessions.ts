@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Types } from "mongoose";
 import { z } from "zod";
 import { AnalysisDepth, SessionType } from "@asistent-ia/schema";
 import {
@@ -198,6 +199,54 @@ sessionsRouter.post("/:id/transcript/replace", async (req, res) => {
   transcript.text = transcript.text.replace(pattern, literal);
   if (replacements || inText) await transcript.save();
   res.json({ replacements, transcript });
+});
+
+// Mueve una sesión grabada en el proyecto equivocado. Sus pendientes pasan al
+// nuevo proyecto y se deshacen los cambios de estado que su análisis hizo en
+// pendientes del proyecto anterior (con el contexto equivocado). Después se
+// re-analiza con el contexto del proyecto correcto.
+const MoveSession = z.object({ projectId: z.string().regex(/^[a-f\d]{24}$/i, "projectId inválido") });
+
+sessionsRouter.post("/:id/move", async (req, res) => {
+  const { projectId } = MoveSession.parse(req.body ?? {});
+  const session = await SessionModel.findById(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+  if (!(await ProjectModel.exists({ _id: projectId }))) {
+    res.status(404).json({ error: "project_not_found" });
+    return;
+  }
+  if (String(session.projectId) === projectId) {
+    res.json({ session, movedItems: 0, revertedFollowups: 0 });
+    return;
+  }
+
+  const oldProjectId = session.projectId;
+  const moved = await ActionItemModel.updateMany({ sessionId: session._id }, { $set: { projectId } });
+
+  // Seguimientos que esta sesión dejó en pendientes del proyecto anterior: se
+  // quita su nota y, si nadie cambió el estado después, vuelve al anterior.
+  let revertedFollowups = 0;
+  const touched = await ActionItemModel.find({ projectId: oldProjectId, "history.sessionId": session._id });
+  for (const item of touched) {
+    const mine = item.history.filter((h) => String(h.sessionId) === String(session._id));
+    const rest = item.history.filter((h) => String(h.sessionId) !== String(session._id));
+    item.set("history", rest);
+    if (mine.some((h) => h.status === item.status)) {
+      item.status = (rest.at(-1)?.status as typeof item.status | undefined) ?? "open";
+    }
+    await item.save();
+    revertedFollowups++;
+  }
+
+  session.projectId = new Types.ObjectId(projectId);
+  session.status = "pending";
+  session.error = undefined;
+  await session.save();
+  await enqueueAnalysis(String(session._id));
+  res.json({ session, movedItems: moved.modifiedCount, revertedFollowups });
 });
 
 // Borra la sesión con su transcripción, su análisis y los pendientes que nacieron en ella.
