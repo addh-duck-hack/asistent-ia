@@ -60,6 +60,16 @@ export const SpeakerGuess = z.object({
   evidence: z.string(),
 });
 
+// Cómo se notó a una persona en la sesión; el líder lo confirma o lo descarta
+// en el perfil de esa persona.
+export const MoodLevel = z.enum(["very_low", "low", "neutral", "good", "very_good"]);
+export type MoodLevel = z.infer<typeof MoodLevel>;
+export const MoodSignal = z.object({
+  person: z.string(),
+  mood: MoodLevel,
+  evidence: z.string(),
+});
+
 export const Analysis = z.object({
   // Sin resumen "detallado": repetía lo que ya cubren topics y decisions y
   // era la parte más cara de la salida.
@@ -75,6 +85,7 @@ export const Analysis = z.object({
   followups_from_previous: z.array(FollowUp),
   team_signals: TeamSignals,
   speaker_identification: z.array(SpeakerGuess),
+  mood_signals: z.array(MoodSignal),
 });
 
 export type Analysis = z.infer<typeof Analysis>;
