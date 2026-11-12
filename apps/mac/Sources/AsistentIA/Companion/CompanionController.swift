@@ -28,6 +28,7 @@ final class CompanionController {
 
     nonisolated static let presenceKey = "companionPresence"
     nonisolated static let originKey = "companionOrigin"
+    nonisolated static let scaleKey = "companionScale"
     nonisolated static let followsCursorKey = "companionFollowsCursor"
     nonisolated static let birthdaysKey = "companionBirthdays"
     nonisolated static let lastBirthdayNoticeKey = "companionLastBirthdayNotice"
@@ -43,6 +44,10 @@ final class CompanionController {
     private(set) var layout = CompanionGeometry.Layout(frame: CGRect(origin: .zero, size: CompanionGeometry.characterSize), bubbleOnLeft: false)
     private(set) var lookPoint: SIMD2<Float>?
     private(set) var isVisible = false
+    private(set) var menuOpen = false
+    /// Escala del personaje (Ajustes → Personaje → Tamaño, el menú o pellizcar con el trackpad).
+    private(set) var scale: Double = 1
+    var characterSize: CGSize { CompanionGeometry.characterSize(scale: scale) }
 
     @ObservationIgnored private var contentSize = CompanionGeometry.characterSize
     @ObservationIgnored private var characterOrigin: CGPoint = .zero
@@ -54,12 +59,15 @@ final class CompanionController {
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
     @ObservationIgnored private var lastBirthdayCheck = Date.distantPast
     @ObservationIgnored private let api = APIClient()
+    @ObservationIgnored private var menuPanel: CompanionPanel?
+    @ObservationIgnored private var menuMonitors: [Any] = []
+    @ObservationIgnored private var suppressNextClick = false
 
     init(store: AppStore, recorder: RecordingService) {
         self.store = store
         self.recorder = recorder
         model = CompanionModel()
-        UserDefaults.standard.register(defaults: [Self.followsCursorKey: true, Self.birthdaysKey: true])
+        UserDefaults.standard.register(defaults: [Self.followsCursorKey: true, Self.birthdaysKey: true, Self.scaleKey: 1.0])
         model.onRestartMic = { [weak self] in self?.recorder.restartMic() }
         model.onRecover = { WindowRouter.shared.open("recorder") }
         Self.shared = self
@@ -74,18 +82,25 @@ final class CompanionController {
     func start() {
         guard panel == nil else { return }
         let panel = CompanionPanel()
-        let hosting = NSHostingView(rootView: CompanionRootView(controller: self))
+        let hosting = FirstMouseHostingView(rootView: CompanionRootView(controller: self))
         hosting.sizingOptions = []
         panel.contentView = hosting
         self.panel = panel
         character = CharacterLibrary.selected()
-        characterOrigin = savedOrigin() ?? CompanionGeometry.defaultOrigin(in: mainScreen())
+        scale = CompanionGeometry.clampScale(UserDefaults.standard.double(forKey: Self.scaleKey))
+        characterOrigin = savedOrigin() ?? CompanionGeometry.defaultOrigin(in: mainScreen(), character: characterSize)
         applyLayout(persist: true)
         updateVisibility()
         observeApp()
         startTicking()
         // ASISTENT_COMPANION_DEMO=1 muestra un globo de ejemplo al arrancar (para probar el diseño).
-        if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] != nil {
+        // ASISTENT_COMPANION_DEMO=menu abre el menú al arrancar.
+        if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "menu" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                if let self, let view = self.panel?.contentView { self.showMenu(at: .zero, in: view) }
+            }
+        } else if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] != nil {
             model.say("¡Hola! Soy tu asistente. Haz clic en mí para grabar, preguntar o ajustar.", mood: .happy,
                       action: .init(title: "Preguntar") { [weak self] in self?.openChat() }, dismissAfter: nil)
         }
@@ -102,9 +117,24 @@ final class CompanionController {
     }
 
     private func settingsChanged() {
-        let selected = CharacterLibrary.selected()
-        if selected != character { character = selected }
+        // Releer la biblioteca solo si cambió el personaje elegido (el pellizco escribe aquí muchas veces por segundo).
+        let selectedId = UserDefaults.standard.string(forKey: CharacterLibrary.selectedKey) ?? CharacterPack.builtInId
+        if selectedId != character.id { character = CharacterLibrary.selected() }
+        let newScale = CompanionGeometry.clampScale(UserDefaults.standard.double(forKey: Self.scaleKey))
+        if newScale != scale {
+            scale = newScale
+            applyLayout(persist: true)
+            positionMenu()
+        }
         updateVisibility()
+    }
+
+    func setScale(_ value: Double) {
+        UserDefaults.standard.set(CompanionGeometry.clampScale(value), forKey: Self.scaleKey)
+    }
+
+    func magnify(by amount: CGFloat) {
+        setScale(scale * (1 + Double(amount)))
     }
 
     // MARK: Visibilidad
@@ -120,6 +150,7 @@ final class CompanionController {
             if !panel.isVisible { panel.orderFrontRegardless() }
         } else if panel.isVisible {
             model.chatOpen = false
+            closeMenu()
             panel.orderOut(nil)
         }
     }
@@ -159,10 +190,11 @@ final class CompanionController {
     private func applyLayout(persist: Bool) {
         let screen = screen(for: CGPoint(x: characterOrigin.x + 10, y: characterOrigin.y + 10))
         if persist {
-            characterOrigin = CompanionGeometry.clamp(CGRect(origin: characterOrigin, size: CompanionGeometry.characterSize), to: screen).origin
+            characterOrigin = CompanionGeometry.clamp(CGRect(origin: characterOrigin, size: characterSize), to: screen).origin
             UserDefaults.standard.set(NSStringFromPoint(characterOrigin), forKey: Self.originKey)
         }
-        let new = CompanionGeometry.layout(characterOrigin: characterOrigin, contentSize: contentSize, screen: screen)
+        let new = CompanionGeometry.layout(characterOrigin: characterOrigin, contentSize: contentSize, screen: screen,
+                                           character: characterSize)
         if new != layout { layout = new }
         panel?.setFrame(new.frame, display: true)
     }
@@ -177,12 +209,14 @@ final class CompanionController {
     func drag(by delta: CGVector) {
         let moved = CGPoint(x: characterOrigin.x + delta.dx, y: characterOrigin.y + delta.dy)
         let screen = screen(for: NSEvent.mouseLocation)
-        characterOrigin = CompanionGeometry.clamp(CGRect(origin: moved, size: CompanionGeometry.characterSize), to: screen).origin
+        characterOrigin = CompanionGeometry.clamp(CGRect(origin: moved, size: characterSize), to: screen).origin
+        closeMenu()
         model.wake()
         applyLayout(persist: false)
     }
 
     func endDrag() {
+        suppressNextClick = false
         applyLayout(persist: true)
     }
 
@@ -193,24 +227,128 @@ final class CompanionController {
 
     // MARK: Menú, ventanas y chat
 
+    /// Clic en el personaje: abre (o cierra) el menú propio a su lado.
     func showMenu(at point: NSPoint, in view: NSView) {
+        if suppressNextClick {
+            suppressNextClick = false
+            return
+        }
+        if menuOpen {
+            closeMenu()
+            return
+        }
         model.wake()
+        let menu = CompanionPanel(identifier: "companion-menu")
+        menu.level = .floating
+        // El fondo de material deja píxeles transparentes y macOS dejaría pasar los clics
+        // a la app de atrás; ponerlo explícitamente en false hace que el menú reciba todos.
+        menu.ignoresMouseEvents = false
+        let hosting = FirstMouseHostingView(rootView: CompanionMenuView(controller: self, actions: menuActions()))
+        hosting.sizingOptions = []
+        menu.contentView = hosting
+        menuPanel = menu
+        menuOpen = true
+        positionMenu()
+        menu.orderFrontRegardless()
+        menu.makeKey()
+        installMenuMonitors()
+    }
+
+    /// Las acciones de la barra, más ocultar el personaje (antes de Ajustes y Salir).
+    func menuActions() -> [AssistantAction] {
         var actions = AssistantActions.items(store: store, recorder: recorder, ask: { [weak self] in self?.openChat() })
         let hide = [
-            AssistantAction(id: "hide-1h", title: "Ocultar el personaje 1 hora", separatorBefore: true) { [weak self] in
+            AssistantAction(id: "hide-1h", title: "Ocultar 1 hora", systemImage: "clock", separatorBefore: true) { [weak self] in
                 self?.hide(for: Self.hideInterval)
             },
-            AssistantAction(id: "hide", title: "Ocultar hasta reiniciar") { [weak self] in self?.hide(for: nil) },
+            AssistantAction(id: "hide", title: "Ocultar hasta reiniciar", systemImage: "eye.slash") { [weak self] in
+                self?.hide(for: nil)
+            },
         ]
         if let index = actions.firstIndex(where: { $0.id == "settings" }) {
             actions.insert(contentsOf: hide, at: index)
         } else {
             actions += hide
         }
-        NSMenu.assistant(actions).popUp(positioning: nil, at: point, in: view)
+        return actions
+    }
+
+    func perform(_ action: AssistantAction) {
+        closeMenu()
+        action.perform()
+    }
+
+    private func positionMenu() {
+        guard let menu = menuPanel, let content = menu.contentView as? FirstMouseHostingView<CompanionMenuView> else { return }
+        // fittingSize sale chico antes del primer dibujo; se mide el SwiftUI directamente.
+        let ideal = NSHostingController(rootView: content.rootView).sizeThatFits(in: CGSize(width: 10_000, height: 10_000))
+        let character = CGRect(origin: CompanionGeometry.characterOrigin(in: layout), size: characterSize)
+        let screen = screen(for: CGPoint(x: character.midX, y: character.midY))
+        let frame = CompanionGeometry.menuFrame(size: ideal, beside: character, screen: screen)
+        menu.setFrame(frame, display: true)
+    }
+
+    func closeMenu() {
+        for monitor in menuMonitors { NSEvent.removeMonitor(monitor) }
+        menuMonitors = []
+        menuPanel?.orderOut(nil)
+        menuPanel = nil
+        if menuOpen { menuOpen = false }
+    }
+
+    /// Cierra el menú con Esc o con un clic fuera de él (en otra app o en el personaje).
+    private func installMenuMonitors() {
+        // Con la app inactiva, macOS también pasa por aquí los clics en nuestros propios paneles
+        // (no activan la app): solo se cierra si el clic cae fuera del menú y del personaje.
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
+            let location = NSEvent.mouseLocation
+            Task { @MainActor in self?.handleGlobalClick(at: location) }
+        }) {
+            menuMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown], handler: { [weak self] event in
+            // NSEvent no es Sendable: se pasan solo los datos que importan.
+            let isKey = event.type == .keyDown
+            // keyCode solo existe en eventos de teclado: en un clic lanza una excepción y AppKit descarta el evento.
+            let keyCode: UInt16 = isKey ? event.keyCode : 0
+            let windowNumber = event.window?.windowNumber
+            let consume = MainActor.assumeIsolated {
+                self?.handleMenuEvent(isKey: isKey, keyCode: keyCode, windowNumber: windowNumber) ?? false
+            }
+            return consume ? nil : event
+        }) {
+            menuMonitors.append(local)
+        }
+    }
+
+    private func handleGlobalClick(at location: CGPoint) {
+        guard menuOpen else { return }
+        if menuPanel?.frame.contains(location) == true { return }
+        if panel?.frame.contains(location) == true {
+            // Lo resuelve el personaje: su clic cierra el menú (toggle en showMenu).
+            return
+        }
+        closeMenu()
+    }
+
+    /// Devuelve true si el evento se consume (Esc).
+    private func handleMenuEvent(isKey: Bool, keyCode: UInt16, windowNumber: Int?) -> Bool {
+        guard menuOpen else { return false }
+        if isKey {
+            guard keyCode == 53 else { return false } // Esc
+            closeMenu()
+            return true
+        }
+        if let windowNumber, windowNumber == menuPanel?.windowNumber { return false }
+        // El clic en el personaje solo cierra el menú (no lo vuelve a abrir).
+        if let windowNumber, windowNumber == panel?.windowNumber { suppressNextClick = true }
+        closeMenu()
+        return false
     }
 
     func openMainWindow() {
+        suppressNextClick = false
+        closeMenu()
         WindowRouter.shared.open("main")
     }
 

@@ -283,7 +283,22 @@ final class CompanionChat {
 
 /// Dónde va el panel: el personaje tiene un tamaño fijo y el globo crece hacia arriba.
 enum CompanionGeometry {
+    /// Tamaño del personaje al 100 %.
     static let characterSize = CGSize(width: 180, height: 200)
+    /// Escala mínima y máxima del personaje (60 % ≈ 108 × 120 pt).
+    static let minScale = 0.6
+    static let maxScale = 2.0
+    static let menuGap: CGFloat = 8
+
+    static func clampScale(_ scale: Double) -> Double {
+        guard scale.isFinite else { return 1 }
+        return min(max(scale, minScale), maxScale)
+    }
+
+    static func characterSize(scale: Double) -> CGSize {
+        let s = clampScale(scale)
+        return CGSize(width: (characterSize.width * s).rounded(), height: (characterSize.height * s).rounded())
+    }
     static let bubbleWidth: CGFloat = 300
     static let spacing: CGFloat = 6
 
@@ -291,22 +306,24 @@ enum CompanionGeometry {
         var frame: CGRect
         /// El globo sobresale hacia la izquierda del personaje (cerca del borde derecho de la pantalla).
         var bubbleOnLeft: Bool
+        var characterSize: CGSize = CompanionGeometry.characterSize
     }
 
     /// Frame del panel para un personaje con esquina inferior izquierda en `origin` y un contenido de `contentSize`
     /// (el personaje solo, o personaje + globo). Siempre dentro de `screen`.
-    static func layout(characterOrigin origin: CGPoint, contentSize: CGSize, screen: CGRect) -> Layout {
-        let width = max(contentSize.width, characterSize.width)
-        let height = max(contentSize.height, characterSize.height)
+    static func layout(characterOrigin origin: CGPoint, contentSize: CGSize, screen: CGRect,
+                       character: CGSize = characterSize) -> Layout {
+        let width = max(contentSize.width, character.width)
+        let height = max(contentSize.height, character.height)
         var x = origin.x
         var bubbleOnLeft = false
-        let extra = width - characterSize.width
+        let extra = width - character.width
         if extra > 0, origin.x + width > screen.maxX, origin.x - extra >= screen.minX {
             bubbleOnLeft = true
             x = origin.x - extra
         }
         let frame = clamp(CGRect(x: x, y: origin.y, width: width, height: height), to: screen)
-        return Layout(frame: frame, bubbleOnLeft: bubbleOnLeft)
+        return Layout(frame: frame, bubbleOnLeft: bubbleOnLeft, characterSize: character)
     }
 
     /// Mete el frame en la pantalla; si no cabe, se alinea a la esquina inferior izquierda.
@@ -321,11 +338,22 @@ enum CompanionGeometry {
 
     /// Esquina inferior izquierda del personaje dentro de un panel ya colocado.
     static func characterOrigin(in layout: Layout) -> CGPoint {
-        CGPoint(x: layout.bubbleOnLeft ? layout.frame.maxX - characterSize.width : layout.frame.minX, y: layout.frame.minY)
+        CGPoint(x: layout.bubbleOnLeft ? layout.frame.maxX - layout.characterSize.width : layout.frame.minX, y: layout.frame.minY)
     }
 
     /// Posición inicial: abajo a la derecha, con margen.
-    static func defaultOrigin(in screen: CGRect) -> CGPoint {
-        CGPoint(x: screen.maxX - characterSize.width - 24, y: screen.minY + 24)
+    static func defaultOrigin(in screen: CGRect, character: CGSize = characterSize) -> CGPoint {
+        CGPoint(x: screen.maxX - character.width - 24, y: screen.minY + 24)
+    }
+
+    /// Menú junto al personaje: a la derecha si cabe completo, si no a la izquierda;
+    /// alineado arriba con el personaje y siempre dentro de la pantalla.
+    static func menuFrame(size: CGSize, beside character: CGRect, screen: CGRect, gap: CGFloat = menuGap) -> CGRect {
+        var x = character.maxX + gap
+        if x + size.width > screen.maxX, character.minX - gap - size.width >= screen.minX {
+            x = character.minX - gap - size.width
+        }
+        let y = character.maxY - size.height
+        return clamp(CGRect(origin: CGPoint(x: x, y: y), size: size), to: screen)
     }
 }

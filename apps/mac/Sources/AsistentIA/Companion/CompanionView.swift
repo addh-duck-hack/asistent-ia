@@ -22,7 +22,7 @@ struct CompanionRootView: View {
                                    look: followsCursor ? controller.lookPoint : nil)
                 InteractionLayer(controller: controller)
             }
-            .frame(width: CompanionGeometry.characterSize.width, height: CompanionGeometry.characterSize.height)
+            .frame(width: controller.characterSize.width, height: controller.characterSize.height)
         }
         .fixedSize()
         .onGeometryChange(for: CGSize.self) { $0.size } action: { controller.reportContentSize($0) }
@@ -45,6 +45,7 @@ private struct InteractionLayer: NSViewRepresentable {
         view.onDrag = { controller.drag(by: $0) }
         view.onDragEnd = { controller.endDrag() }
         view.onHover = { controller.hover($0) }
+        view.onMagnify = { controller.magnify(by: $0) }
         return view
     }
 

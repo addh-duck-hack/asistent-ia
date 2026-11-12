@@ -8,6 +8,8 @@ final class WindowRouter {
 
     /// Se captura con `.captureWindowRouter()` en una vista de una escena (o del panel; también funciona ahí).
     var openWindow: OpenWindowAction?
+    /// Abre Ajustes (macOS 14+ ya no acepta el selector showSettingsWindow:).
+    var openSettingsAction: OpenSettingsAction?
 
     func open(_ id: String) {
         if let openWindow {
@@ -20,7 +22,13 @@ final class WindowRouter {
 
     func openSettings() {
         NSApp.activate()
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        if let openSettingsAction {
+            openSettingsAction()
+        } else if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "com_apple_SwiftUI_Settings_window" }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
     }
 }
 
@@ -31,9 +39,13 @@ extension View {
 
 private struct CaptureWindowRouter: ViewModifier {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     func body(content: Content) -> some View {
-        content.onAppear { WindowRouter.shared.openWindow = openWindow }
+        content.onAppear {
+            WindowRouter.shared.openWindow = openWindow
+            WindowRouter.shared.openSettingsAction = openSettings
+        }
     }
 }
 
@@ -41,15 +53,17 @@ private struct CaptureWindowRouter: ViewModifier {
 struct AssistantAction: Identifiable {
     let id: String
     let title: String
+    var systemImage: String?
     var enabled = true
     var separatorBefore = false
     var shortcut: Character?
     let perform: @MainActor () -> Void
 
-    init(id: String, title: String, enabled: Bool = true, separatorBefore: Bool = false, shortcut: Character? = nil,
-         perform: @escaping @MainActor () -> Void) {
+    init(id: String, title: String, systemImage: String? = nil, enabled: Bool = true, separatorBefore: Bool = false,
+         shortcut: Character? = nil, perform: @escaping @MainActor () -> Void) {
         self.id = id
         self.title = title
+        self.systemImage = systemImage
         self.enabled = enabled
         self.separatorBefore = separatorBefore
         self.shortcut = shortcut
@@ -64,22 +78,22 @@ enum AssistantActions {
     static func items(store: AppStore, recorder: RecordingService, ask: (@MainActor () -> Void)? = nil) -> [AssistantAction] {
         let router = WindowRouter.shared
         var items: [AssistantAction] = []
-        items.append(.init(id: "open", title: "Abrir Asistent IA") { router.open("main") })
+        items.append(.init(id: "open", title: "Abrir Asistent IA", systemImage: "macwindow") { router.open("main") })
         if !recorder.interrupted.isEmpty, !recorder.phase.isBusy {
-            items.append(.init(id: "recover", title: "Recuperar grabación interrumpida…") { router.open("recorder") })
+            items.append(.init(id: "recover", title: "Recuperar grabación interrumpida…", systemImage: "arrow.counterclockwise") { router.open("recorder") })
         }
         if recorder.isRecording {
-            items.append(.init(id: "stop", title: "Detener y analizar") {
+            items.append(.init(id: "stop", title: "Detener y analizar", systemImage: "stop.circle") {
                 router.open("recorder")
                 Task { await recorder.stopAndProcess() }
             })
             // La confirmación está en la ventana de grabación.
-            items.append(.init(id: "cancel", title: "Cancelar grabación…") { router.open("recorder") })
+            items.append(.init(id: "cancel", title: "Cancelar grabación…", systemImage: "xmark.circle") { router.open("recorder") })
         } else {
-            items.append(.init(id: "record", title: "Grabar reunión…", enabled: !recorder.phase.isBusy) { router.open("recorder") })
-            items.append(.init(id: "audio-test", title: "Probar audio…", enabled: !recorder.phase.isBusy) { router.open("audio-test") })
+            items.append(.init(id: "record", title: "Grabar reunión…", systemImage: "record.circle", enabled: !recorder.phase.isBusy) { router.open("recorder") })
+            items.append(.init(id: "audio-test", title: "Probar audio…", systemImage: "waveform", enabled: !recorder.phase.isBusy) { router.open("audio-test") })
         }
-        items.append(.init(id: "ask", title: "Preguntar…", enabled: store.hasBackend) {
+        items.append(.init(id: "ask", title: "Preguntar…", systemImage: "bubble.left.and.text.bubble.right", enabled: store.hasBackend) {
             if let ask {
                 ask()
             } else {
@@ -87,8 +101,8 @@ enum AssistantActions {
                 router.open("main")
             }
         })
-        items.append(.init(id: "settings", title: "Ajustes…", separatorBefore: true) { router.openSettings() })
-        items.append(.init(id: "quit", title: "Salir", shortcut: "q") { NSApplication.shared.terminate(nil) })
+        items.append(.init(id: "settings", title: "Ajustes…", systemImage: "gearshape", separatorBefore: true) { router.openSettings() })
+        items.append(.init(id: "quit", title: "Salir", systemImage: "power", shortcut: "q") { NSApplication.shared.terminate(nil) })
         return items
     }
 }
@@ -121,30 +135,5 @@ struct AssistantMenuItems: View {
             Button("Mostrar el personaje") { companion.show() }
         }
         EmptyView().captureWindowRouter()
-    }
-}
-
-/// Menú de AppKit con las mismas acciones, para el clic en el personaje.
-final class AssistantMenuItem: NSMenuItem {
-    var perform: (@MainActor () -> Void)?
-
-    @MainActor @objc func run(_ sender: Any?) { perform?() }
-}
-
-extension NSMenu {
-    @MainActor
-    static func assistant(_ actions: [AssistantAction]) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        for action in actions {
-            if action.separatorBefore { menu.addItem(.separator()) }
-            let item = AssistantMenuItem(title: action.title, action: #selector(AssistantMenuItem.run(_:)),
-                                         keyEquivalent: action.shortcut.map(String.init) ?? "")
-            item.target = item
-            item.perform = action.perform
-            item.isEnabled = action.enabled
-            menu.addItem(item)
-        }
-        return menu
     }
 }

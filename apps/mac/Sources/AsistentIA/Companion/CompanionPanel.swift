@@ -1,9 +1,10 @@
 import AppKit
+import SwiftUI
 
 /// Ventana del personaje: sin bordes, flotante sobre todo, en todos los escritorios,
 /// y no activa la app al hacer clic (solo toma el teclado cuando el chat lo pide).
 final class CompanionPanel: NSPanel {
-    init() {
+    init(identifier id: String = "companion") {
         super.init(contentRect: CGRect(origin: .zero, size: CompanionGeometry.characterSize),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .floating
@@ -16,11 +17,16 @@ final class CompanionPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
         isMovableByWindowBackground = false
         animationBehavior = .none
-        identifier = NSUserInterfaceItemIdentifier("companion")
+        identifier = NSUserInterfaceItemIdentifier(id)
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+}
+
+/// `NSHostingView` que responde al primer clic aunque la app no esté activa.
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// Capa invisible sobre el personaje: solo los clics dentro de su silueta son suyos
@@ -31,6 +37,8 @@ final class CompanionInteractionView: NSView {
     var onDrag: ((CGVector) -> Void)?
     var onDragEnd: (() -> Void)?
     var onHover: ((SIMD2<Float>?) -> Void)?
+    /// Pellizco en el trackpad: cambia el tamaño del personaje.
+    var onMagnify: ((CGFloat) -> Void)?
 
     private var lastDragLocation: NSPoint?
     private var dragging = false
@@ -105,6 +113,10 @@ final class CompanionInteractionView: NSView {
             guard !Task.isCancelled, let self else { return }
             self.onClick?(point)
         }
+    }
+
+    override func magnify(with event: NSEvent) {
+        onMagnify?(event.magnification)
     }
 
     override func rightMouseDown(with event: NSEvent) {

@@ -149,3 +149,49 @@ struct CompanionGeometryTests {
         #expect(CompanionGeometry.clamp(CGRect(x: 500, y: 0, width: 2000, height: 100), to: screen).origin.x == 0)
     }
 }
+
+struct CompanionSizeAndMenuTests {
+    let screen = CGRect(x: 0, y: 0, width: 1440, height: 877)
+
+    @Test func scaleIsClampedWithAMinimum() {
+        #expect(CompanionGeometry.clampScale(0.1) == CompanionGeometry.minScale)
+        #expect(CompanionGeometry.clampScale(9) == CompanionGeometry.maxScale)
+        #expect(CompanionGeometry.clampScale(.nan) == 1)
+        #expect(CompanionGeometry.characterSize(scale: 1) == CompanionGeometry.characterSize)
+        #expect(CompanionGeometry.characterSize(scale: 0.2) == CGSize(width: 108, height: 120))
+        #expect(CompanionGeometry.characterSize(scale: 1.5) == CGSize(width: 270, height: 300))
+    }
+
+    @Test func biggerCharacterKeepsItsOriginAndBubble() {
+        let big = CompanionGeometry.characterSize(scale: 2)
+        let layout = CompanionGeometry.layout(characterOrigin: CGPoint(x: 100, y: 50),
+                                              contentSize: CGSize(width: big.width, height: big.height + 120),
+                                              screen: screen, character: big)
+        #expect(layout.frame == CGRect(x: 100, y: 50, width: 360, height: 520))
+        #expect(CompanionGeometry.characterOrigin(in: layout) == CGPoint(x: 100, y: 50))
+        let corner = CompanionGeometry.defaultOrigin(in: screen, character: big)
+        #expect(corner.x + big.width == screen.maxX - 24)
+    }
+
+    @Test func menuOpensToTheRightWhenItFits() {
+        let character = CGRect(x: 100, y: 50, width: 180, height: 200)
+        let frame = CompanionGeometry.menuFrame(size: CGSize(width: 280, height: 420), beside: character, screen: screen)
+        #expect(frame.minX == character.maxX + CompanionGeometry.menuGap)
+        #expect(frame.minY == 0) // alineado arriba con el personaje, sin salirse por abajo
+        #expect(screen.contains(frame))
+    }
+
+    @Test func menuOpensToTheLeftNearTheRightEdgeAndIsAlwaysWhole() {
+        let character = CGRect(x: 1236, y: 24, width: 180, height: 200)
+        let size = CGSize(width: 280, height: 420)
+        let frame = CompanionGeometry.menuFrame(size: size, beside: character, screen: screen)
+        #expect(frame.maxX == character.minX - CompanionGeometry.menuGap)
+        #expect(frame.size == size)
+        #expect(screen.contains(frame))
+
+        let high = CGRect(x: 100, y: 700, width: 180, height: 200)
+        let top = CompanionGeometry.menuFrame(size: size, beside: high, screen: screen)
+        #expect(top.maxY <= screen.maxY)
+        #expect(screen.contains(top))
+    }
+}
