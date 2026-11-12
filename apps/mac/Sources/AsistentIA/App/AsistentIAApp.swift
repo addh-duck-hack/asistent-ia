@@ -3,8 +3,19 @@ import SwiftUI
 
 @main
 struct AsistentIAApp: App {
-    @State private var store = AppStore()
-    @State private var recorder = RecordingService()
+    @State private var store: AppStore
+    @State private var recorder: RecordingService
+    /// Vive mientras la app; muestra el personaje al terminar de arrancar.
+    private let companion: CompanionController
+    @AppStorage(CompanionController.presenceKey) private var presence = CompanionController.Presence.character.rawValue
+
+    init() {
+        let store = AppStore()
+        let recorder = RecordingService()
+        _store = State(initialValue: store)
+        _recorder = State(initialValue: recorder)
+        companion = CompanionController(store: store, recorder: recorder)
+    }
 
     var body: some Scene {
         // Window (no WindowGroup): una sola ventana principal; openWindow la trae
@@ -14,18 +25,21 @@ struct AsistentIAApp: App {
                 .environment(store)
                 .environment(recorder)
                 .frame(minWidth: 1000, minHeight: 620)
+                .captureWindowRouter()
         }
 
         Window("Grabar reunión", id: "recorder") {
             RecorderView()
                 .environment(store)
                 .environment(recorder)
+                .captureWindowRouter()
         }
         .windowResizability(.contentSize)
 
         Window("Probar audio", id: "audio-test") {
             AudioTestView()
                 .environment(recorder)
+                .captureWindowRouter()
         }
         .windowResizability(.contentSize)
 
@@ -34,56 +48,27 @@ struct AsistentIAApp: App {
                 .environment(store)
         }
 
+        // El icono de la barra se quita cuando el personaje lo reemplaza (Ajustes → Personaje).
         MenuBarExtra("Asistent IA", systemImage: recorder.micProblem != nil ? "exclamationmark.triangle.fill"
-                       : recorder.isRecording ? "record.circle.fill" : "waveform.badge.magnifyingglass") {
-            MenuBarContent()
+                       : recorder.isRecording ? "record.circle.fill" : "waveform.badge.magnifyingglass",
+                     isInserted: menuBarInserted) {
+            AssistantMenuItems()
                 .environment(store)
                 .environment(recorder)
         }
     }
-}
 
-private struct MenuBarContent: View {
-    @Environment(AppStore.self) private var store
-    @Environment(RecordingService.self) private var recorder
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Abrir Asistent IA") {
-            openWindow(id: "main")
-            NSApplication.shared.activate()
-        }
-        if !recorder.interrupted.isEmpty, !recorder.phase.isBusy {
-            Button("Recuperar grabación interrumpida…") {
-                openWindow(id: "recorder")
-                NSApplication.shared.activate()
+    private var menuBarInserted: Binding<Bool> {
+        Binding(
+            get: { (CompanionController.Presence(rawValue: presence) ?? .character).showsMenuBar },
+            set: { inserted in
+                // Si el usuario saca el icono de la barra (⌘-arrastrar), queda solo el personaje.
+                if !inserted {
+                    presence = CompanionController.Presence.character.rawValue
+                } else if presence == CompanionController.Presence.character.rawValue {
+                    presence = CompanionController.Presence.both.rawValue
+                }
             }
-        }
-        if recorder.isRecording {
-            Button("Detener y analizar") {
-                openWindow(id: "recorder")
-                Task { await recorder.stopAndProcess() }
-            }
-            Button("Cancelar grabación…") {
-                // La confirmación está en la ventana de grabación.
-                openWindow(id: "recorder")
-                NSApplication.shared.activate()
-            }
-        } else {
-            Button("Grabar reunión…") {
-                openWindow(id: "recorder")
-                NSApplication.shared.activate()
-            }
-            .disabled(recorder.phase.isBusy)
-            Button("Probar audio…") {
-                openWindow(id: "audio-test")
-                NSApplication.shared.activate()
-            }
-            .disabled(recorder.phase.isBusy)
-        }
-        Divider()
-        SettingsLink { Text("Ajustes…") }
-        Button("Salir") { NSApplication.shared.terminate(nil) }
-            .keyboardShortcut("q")
+        )
     }
 }

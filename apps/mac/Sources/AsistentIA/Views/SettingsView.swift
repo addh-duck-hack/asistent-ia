@@ -16,6 +16,12 @@ struct SettingsView: View {
     @State private var audioBytes = SessionAudio.shared.totalBytes()
     @AppStorage(ObsidianExporter.rootKey) private var obsidianRoot = ""
     @AppStorage(ObsidianExporter.autoExportKey) private var obsidianAuto = false
+    @AppStorage(CompanionController.presenceKey) private var presence = CompanionController.Presence.character.rawValue
+    @AppStorage(CharacterLibrary.selectedKey) private var characterId = CharacterPack.builtInId
+    @AppStorage(CompanionController.followsCursorKey) private var followsCursor = true
+    @AppStorage(CompanionController.birthdaysKey) private var birthdays = true
+    @State private var characters = CharacterLibrary.installed()
+    @State private var importResult: String?
 
     var body: some View {
         Form {
@@ -95,6 +101,25 @@ struct SettingsView: View {
                 Toggle("Exportar automáticamente al terminar cada análisis (con la app abierta)", isOn: $obsidianAuto)
                     .disabled(obsidianRoot.isEmpty)
             }
+            Section("Personaje") {
+                Picker("Mostrar", selection: $presence) {
+                    ForEach(CompanionController.Presence.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                Picker("Personaje", selection: $characterId) {
+                    ForEach(characters) { Text($0.name).tag($0.id) }
+                }
+                HStack {
+                    Button("Importar carpeta…") { importCharacter() }
+                    Button("Mostrar carpeta de personajes") { showCharactersFolder() }
+                }
+                if let importResult {
+                    Text(importResult).font(.caption)
+                }
+                Text("Una carpeta con un .usdz por estado (idle, listening, thinking, talking, happy, sad, alert, sleeping), todos con el mismo esqueleto. Los personajes de Unity, Fab, CGTrader o Mixamo se convierten a USDZ con Blender; la guía está en el README de la carpeta de personajes.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Gira hacia el cursor", isOn: $followsCursor)
+                Toggle("Avisar cumpleaños y aniversarios del equipo", isOn: $birthdays)
+            }
             HStack {
                 Button("Guardar y probar conexión") { saveAndTest() }
                     .disabled(testing || token.hasPrefix("sk-ant-"))
@@ -116,6 +141,36 @@ struct SettingsView: View {
         panel.message = "Elige la carpeta del vault donde se guardarán las notas"
         if !obsidianRoot.isEmpty { panel.directoryURL = URL(fileURLWithPath: obsidianRoot) }
         if panel.runModal() == .OK, let url = panel.url { obsidianRoot = url.path }
+    }
+
+    private func importCharacter() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.prompt = "Importar"
+        panel.message = "Elige la carpeta con los .usdz del personaje"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let result = try CharacterImporter.importFolder(url)
+            characters = CharacterLibrary.installed()
+            characterId = result.character.id
+            let moods = CompanionMood.allCases.filter { result.character.pack.clips[$0] != nil }.map(\.label).joined(separator: ", ")
+            importResult = "✅ \(result.character.name): \(moods)"
+                + (result.unmatched.isEmpty ? "" : " · sin estado: \(result.unmatched.joined(separator: ", "))")
+        } catch {
+            importResult = "❌ \(error.localizedDescription)"
+        }
+    }
+
+    private func showCharactersFolder() {
+        let folder = CharacterLibrary.userDirectory
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let readme = folder.appending(path: "README.md")
+        if !FileManager.default.fileExists(atPath: readme.path),
+           let bundled = CharacterLibrary.bundledDirectory?.appending(path: "README.md") {
+            try? FileManager.default.copyItem(at: bundled, to: readme)
+        }
+        NSWorkspace.shared.open(folder)
     }
 
     private func saveAndTest() {

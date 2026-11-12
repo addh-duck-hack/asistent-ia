@@ -158,17 +158,28 @@ private struct MessageBubble: View {
                     .background(.blue.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
             }
         } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(rendered)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text([
-                    message.model.map(ModelName.pretty),
-                    message.toolCalls.map { "\($0) búsquedas" },
-                    message.usage?.costUsd.map { Money.usd($0) },
-                ].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption2).foregroundStyle(.tertiary)
-            }
+            AnswerText(message: message, sessions: sessions)
+        }
+    }
+}
+
+/// Respuesta de Claude con sus citas como enlaces y, debajo, modelo, búsquedas y costo.
+/// La usan la ventana de Preguntar y el globo del personaje.
+struct AnswerText: View {
+    let message: ConversationMessage
+    let sessions: [Conversation.CitedSession]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(rendered)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text([
+                message.model.map(ModelName.pretty),
+                message.toolCalls.map { "\($0) búsquedas" },
+                message.usage?.costUsd.map { Money.usd($0) },
+            ].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption2).foregroundStyle(.tertiary)
         }
     }
 
