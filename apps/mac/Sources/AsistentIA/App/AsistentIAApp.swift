@@ -59,11 +59,15 @@ struct AsistentIAApp: App {
     }
 
     private var menuBarInserted: Binding<Bool> {
-        Binding(
-            get: { (CompanionController.Presence(rawValue: presence) ?? .character).showsMenuBar },
+        // Se lee aquí (en body) para que SwiftUI vuelva a evaluar al ocultar o mostrar el personaje.
+        let show = (CompanionController.Presence(rawValue: presence) ?? .character).showsMenuBar || companion.isHiddenByUser
+        return Binding(
+            get: { show },
             set: { inserted in
                 // Si el usuario saca el icono de la barra (⌘-arrastrar), queda solo el personaje.
                 if !inserted {
+                    // Si el personaje está oculto, sacar el icono lo vuelve a mostrar (si no, no quedaría nada).
+                    companion.show()
                     presence = CompanionController.Presence.character.rawValue
                 } else if presence == CompanionController.Presence.character.rawValue {
                     presence = CompanionController.Presence.both.rawValue

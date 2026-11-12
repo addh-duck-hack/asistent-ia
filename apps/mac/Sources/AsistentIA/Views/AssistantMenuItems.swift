@@ -119,6 +119,12 @@ struct AssistantMenuItems: View {
 
     var body: some View {
         let companion = CompanionController.shared
+        if let companion, companion.isHiddenByUser {
+            Button("Mostrar el personaje") { companion.show() }
+            Text(companion.hiddenUntilDate.map { "Oculto hasta las \($0.formatted(date: .omitted, time: .shortened))" }
+                 ?? "Oculto hasta reiniciar la app")
+            Divider()
+        }
         ForEach(AssistantActions.items(store: store, recorder: recorder)) { action in
             if action.separatorBefore { Divider() }
             if let key = action.shortcut {
@@ -129,10 +135,6 @@ struct AssistantMenuItems: View {
                 Button(action.title) { action.perform() }
                     .disabled(!action.enabled)
             }
-        }
-        if let companion, !companion.isVisible {
-            Divider()
-            Button("Mostrar el personaje") { companion.show() }
         }
         EmptyView().captureWindowRouter()
     }

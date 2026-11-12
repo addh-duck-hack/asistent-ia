@@ -27,3 +27,31 @@ struct AssistantActionsTests {
         #expect(CompanionController.Presence.both.showsCharacter && CompanionController.Presence.both.showsMenuBar)
     }
 }
+
+@MainActor
+struct CompanionHideTests {
+    @Test func hidingShowsTheMenuBarIconUntilTheCharacterComesBack() {
+        let defaults = UserDefaults.standard
+        let previous = defaults.string(forKey: CompanionController.presenceKey)
+        defer { defaults.set(previous, forKey: CompanionController.presenceKey) }
+        defaults.set(CompanionController.Presence.character.rawValue, forKey: CompanionController.presenceKey)
+
+        let controller = CompanionController(store: AppStore(), recorder: RecordingService())
+        controller.hide(for: 3600)
+        #expect(controller.isHiddenByUser)
+        #expect(!controller.isVisible)
+        let until = try? #require(controller.hiddenUntilDate)
+        #expect(until.map { $0.timeIntervalSinceNow > 3500 } == true)
+
+        controller.show()
+        #expect(!controller.isHiddenByUser)
+        #expect(controller.isVisible)
+        #expect(controller.hiddenUntilDate == nil)
+
+        controller.hide(for: nil)
+        #expect(controller.isHiddenByUser)
+        #expect(controller.hiddenUntilDate == nil) // hasta reiniciar
+        controller.show()
+        #expect(!controller.isHiddenByUser)
+    }
+}

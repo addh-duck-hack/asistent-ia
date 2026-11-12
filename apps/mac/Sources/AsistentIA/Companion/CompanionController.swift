@@ -44,6 +44,10 @@ final class CompanionController {
     private(set) var layout = CompanionGeometry.Layout(frame: CGRect(origin: .zero, size: CompanionGeometry.characterSize), bubbleOnLeft: false)
     private(set) var lookPoint: SIMD2<Float>?
     private(set) var isVisible = false
+    /// El usuario lo ocultó (1 hora o hasta reiniciar): mientras tanto se muestra el icono de la barra
+    /// para poder traerlo de vuelta. `hiddenUntil` es nil si es hasta reiniciar.
+    private(set) var isHiddenByUser = false
+    private(set) var hiddenUntilDate: Date?
     private(set) var menuOpen = false
     /// Escala del personaje (Ajustes → Personaje → Tamaño, el menú o pellizcar con el trackpad).
     private(set) var scale: Double = 1
@@ -145,6 +149,10 @@ final class CompanionController {
         let hiddenForNow = hiddenUntil.map { $0 > .now } ?? false
         let visible = presence.showsCharacter && !hiddenUntilRelaunch && !hiddenForNow
         if visible != isVisible { isVisible = visible }
+        let hiddenByUser = presence.showsCharacter && (hiddenUntilRelaunch || hiddenForNow)
+        if hiddenByUser != isHiddenByUser { isHiddenByUser = hiddenByUser }
+        let until = hiddenForNow ? hiddenUntil : nil
+        if until != hiddenUntilDate { hiddenUntilDate = until }
         guard let panel else { return }
         if visible {
             if !panel.isVisible { panel.orderFrontRegardless() }
