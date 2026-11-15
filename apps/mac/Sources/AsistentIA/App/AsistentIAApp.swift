@@ -43,6 +43,12 @@ struct AsistentIAApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window("Animaciones del personaje", id: "animations") {
+            CharacterAnimationsView()
+                .captureWindowRouter()
+        }
+        .defaultSize(width: 900, height: 720)
+
         Settings {
             SettingsView()
                 .environment(store)

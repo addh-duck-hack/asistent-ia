@@ -60,6 +60,42 @@ struct CompanionModelTests {
         #expect(model.bubbles.count == 1)
     }
 
+    @Test func recordingBubbleCanStopAndFailureShowsDetails() {
+        let model = CompanionModel()
+        var stopped = false
+        var shown = false
+        model.onStopRecording = { stopped = true }
+        model.onShowRecorder = { shown = true }
+        model.apply(phase: .recording(since: .now), title: "Daily")
+        #expect(model.current?.action?.title == "Detener y analizar")
+        model.current?.action?.perform()
+        #expect(stopped)
+        model.apply(phase: .transcribing(progress: 0.2), title: "Daily")
+        #expect(model.current?.action == nil) // procesando no se puede detener
+        model.apply(phase: .failed("Sin conexión"))
+        #expect(model.current?.action?.title == "Ver detalles")
+        model.current?.action?.perform()
+        #expect(shown)
+    }
+
+    @Test func previewOverridesTheMoodForAWhile() {
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        let model = CompanionModel(now: { now })
+        model.apply(phase: .recording(since: now))
+        model.preview(.happy, for: 6)
+        #expect(model.mood == .happy) // manda sobre la grabación
+        now = now.addingTimeInterval(5)
+        model.tick()
+        #expect(model.mood == .happy)
+        now = now.addingTimeInterval(2)
+        model.tick()
+        #expect(model.previewMood == nil)
+        #expect(model.mood == .listening) // vuelve a lo que estaba haciendo
+        model.preview(.sad)
+        model.stopPreview()
+        #expect(model.mood == .listening)
+    }
+
     @Test func noticesAndErrorsDoNotRepeat() {
         let model = CompanionModel()
         let notice = AppStore.Notice(text: "Copiado")
@@ -160,6 +196,17 @@ struct CompanionSizeAndMenuTests {
         #expect(CompanionGeometry.characterSize(scale: 1) == CompanionGeometry.characterSize)
         #expect(CompanionGeometry.characterSize(scale: 0.2) == CGSize(width: 108, height: 120))
         #expect(CompanionGeometry.characterSize(scale: 1.5) == CGSize(width: 270, height: 300))
+        #expect(CompanionGeometry.maxScale == 2.5)
+        #expect(CompanionGeometry.characterSize(scale: 9) == CGSize(width: 450, height: 500))
+    }
+
+    @Test func proportionChangesTheWidthAndKeepsTheHeight() {
+        #expect(CompanionGeometry.characterSize(scale: 1, aspect: 0.55) == CGSize(width: 110, height: 200))
+        #expect(CompanionGeometry.characterSize(scale: 2, aspect: 0.5) == CGSize(width: 200, height: 400))
+        // Al angostar el cuadro el personaje se queda centrado donde estaba.
+        let origin = CompanionGeometry.recentered(origin: CGPoint(x: 100, y: 40), from: CGSize(width: 180, height: 200),
+                                                  to: CGSize(width: 110, height: 200))
+        #expect(origin == CGPoint(x: 135, y: 40))
     }
 
     @Test func biggerCharacterKeepsItsOriginAndBubble() {
@@ -171,6 +218,17 @@ struct CompanionSizeAndMenuTests {
         #expect(CompanionGeometry.characterOrigin(in: layout) == CGPoint(x: 100, y: 50))
         let corner = CompanionGeometry.defaultOrigin(in: screen, character: big)
         #expect(corner.x + big.width == screen.maxX - 24)
+    }
+
+    @Test func resizingWithTheMenuOpenKeepsTheEdgeNextToTheMenu() {
+        let old = CGSize(width: 110, height: 200), new = CGSize(width: 165, height: 300)
+        let origin = CGPoint(x: 400, y: 50)
+        // Menú a la derecha: el borde derecho del personaje no se mueve.
+        let grown = CompanionGeometry.resizedOrigin(origin: origin, from: old, to: new, menuOnRight: true)
+        #expect(grown.x + new.width == origin.x + old.width)
+        #expect(grown.y == origin.y)
+        // Menú a la izquierda: el borde izquierdo no se mueve.
+        #expect(CompanionGeometry.resizedOrigin(origin: origin, from: old, to: new, menuOnRight: false) == origin)
     }
 
     @Test func menuOpensToTheRightWhenItFits() {

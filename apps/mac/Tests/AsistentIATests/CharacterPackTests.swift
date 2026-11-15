@@ -16,7 +16,7 @@ import Testing
     #expect(pack.clips[.listening] == [ClipSource(file: "listen.usdz")])
     #expect(pack.clips[.thinking] == [ClipSource(file: "all.usdz", start: 0, end: 2.5)])
     #expect(pack.clips.count == 3) // la clave desconocida se ignora
-    #expect(pack.camera.distance == 2.3)
+    #expect(pack.camera == nil) // sin cámara: encuadre automático
     #expect(pack.resolvedMood(for: .happy) == .thinking) // fallback explícito
     #expect(pack.resolvedMood(for: .sad) == .idle) // sin fallback: idle
     #expect(pack.files == ["robi.usdz", "idle.usdz", "idle2.usdz", "listen.usdz", "all.usdz"])
@@ -94,4 +94,56 @@ import Testing
     try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
     try Data("usd".utf8).write(to: empty.appending(path: "walk.usdz"))
     #expect(throws: CharacterImporter.ImportError.self) { try CharacterImporter.importFolder(empty, into: library) }
+}
+
+@Test func cameraIsAutomaticUnlessCustomized() throws {
+    let legacy = #"{"id": "z", "clips": {"idle": "idle.usdz"}, "camera": {"distance": 2.3, "height": 0.65}}"#
+    #expect(try JSONDecoder().decode(CharacterPack.self, from: Data(legacy.utf8)).camera == nil)
+    let custom = #"{"id": "z", "clips": {"idle": "idle.usdz"}, "camera": {"distance": 4, "height": 1}}"#
+    #expect(try JSONDecoder().decode(CharacterPack.self, from: Data(custom.utf8)).camera == .init(distance: 4, height: 1))
+    #expect(CharacterPack.builtInDuck.camera != nil) // el pato conserva su encuadre
+    let written = try JSONEncoder().encode(CharacterPack(id: "z", name: "Z", clips: [.idle: [ClipSource(file: "idle.usdz")]]))
+    #expect(!String(decoding: written, as: UTF8.self).contains("camera"))
+}
+
+@Test func framingFillsTheBoxForTallAndWideCharacters() {
+    let fov: Float = 60
+    let tan30 = tan(Float.pi / 6)
+    // Humano de 1.2 m: lo visible a lo alto en el plano del personaje ≈ 1.2 / 0.86.
+    let tall = CharacterFraming.frame(extents: [0.5, 1.2, 0.3], center: [0, 0.6, 0], fieldOfViewDegrees: fov)
+    let visible = 2 * (tall.position.z - 0.15) * tan30
+    #expect(abs(visible - 1.2 / CharacterFraming.fill) < 0.01)
+    #expect(tall.target == [0, 0.6, 0])
+    // Algo claramente ancho (2 × 0.6): manda el ancho.
+    let wide = CharacterFraming.frame(extents: [2.0, 0.6, 0.3], center: [0, 0.3, 0], fieldOfViewDegrees: fov)
+    #expect(wide.position.z > tall.position.z)
+    // Un humano en pose T (ancho ≈ alto) se encuadra por su alto.
+    let tPose = CharacterFraming.frame(extents: [1.2, 1.2, 0.3], center: [0, 0.6, 0], fieldOfViewDegrees: fov)
+    #expect(abs(tPose.position.z - tall.position.z) < 0.001)
+    // zoom 2 acerca la cámara a la mitad (sin contar la profundidad).
+    let zoomed = CharacterFraming.frame(extents: [0.5, 1.2, 0.3], center: [0, 0.6, 0], fieldOfViewDegrees: fov, zoom: 2)
+    #expect(abs((zoomed.position.z - 0.15) * 2 - (tall.position.z - 0.15)) < 0.001)
+    // Un cuadro de humanoide no aleja la cámara: el humano en T sigue encuadrado por su alto.
+    let narrow = CharacterFraming.frame(extents: [1.2, 1.2, 0.3], center: [0, 0.6, 0], fieldOfViewDegrees: fov, aspect: 0.55)
+    #expect(abs(narrow.position.z - tall.position.z) < 0.001)
+    // Más angosto que el cuerpo de pie: la cámara se aleja para que quepa a lo ancho en vez de cortarlo.
+    let slim = CharacterFraming.frame(extents: [1.2, 1.2, 0.3], center: [0, 0.6, 0], fieldOfViewDegrees: fov, aspect: 0.4)
+    let slimVisibleWidth = 2 * (slim.position.z - 0.15) * tan30 * 0.4
+    #expect(abs(slimVisibleWidth - 0.6 / CharacterFraming.fill) < 0.01)
+}
+
+@Test func frameProportionDefaultsToHumanoidAndIsStoredPerCharacter() throws {
+    let plain = CharacterPack(id: "z", name: "Z", clips: [.idle: [ClipSource(file: "idle.usdz")]])
+    #expect(plain.frameAspect == CharacterPack.defaultAspect)
+    #expect(!String(decoding: try JSONEncoder().encode(plain), as: UTF8.self).contains("aspect"))
+    #expect(CharacterPack.builtInDuck.frameAspect == CharacterPack.duckAspect)
+
+    var custom = plain
+    custom.aspect = 0.7
+    let back = try JSONDecoder().decode(CharacterPack.self, from: JSONEncoder().encode(custom))
+    #expect(back.frameAspect == 0.7)
+    custom.aspect = 5
+    #expect(custom.frameAspect == CharacterPack.aspectRange.upperBound)
+    custom.aspect = 0.1
+    #expect(custom.frameAspect == CharacterPack.aspectRange.lowerBound)
 }

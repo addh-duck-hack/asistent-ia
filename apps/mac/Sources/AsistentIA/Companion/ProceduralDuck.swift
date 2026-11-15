@@ -9,6 +9,12 @@ protocol CharacterActor: AnyObject {
     /// Altura aproximada (metros) para encuadrar la cámara.
     var height: Float { get }
     func play(_ mood: CompanionMood)
+    /// Reproduce un clip suelto: una vez (y avisa al terminar) o en bucle hasta el siguiente `play`/`perform`.
+    func perform(_ clip: ClipSource, loops: Bool, completion: @escaping @MainActor () -> Void)
+    /// Cuántas animaciones distintas tiene para un estado.
+    func variants(for mood: CompanionMood) -> Int
+    /// El paquete cambió (animaciones asignadas) sin cambiar de modelo.
+    func apply(_ pack: CharacterPack)
     /// Gira hacia un punto normalizado (-1…1 en x e y); nil vuelve al frente.
     func look(toward point: SIMD2<Float>?)
     /// Detiene tareas en segundo plano (parpadeo) al quitar el personaje.
@@ -47,6 +53,8 @@ final class ProceduralDuck: CharacterActor {
     private let rightWing = Entity()
     private var eyes: [Entity] = []
     private var blinkTask: Task<Void, Never>?
+    private var gestureTask: Task<Void, Never>?
+    private static let gestureSeconds = 2.2
 
     private static let torsoRest = Transform()
     private static let headRest = Transform(translation: [0, 0.95, 0.2])
@@ -117,6 +125,7 @@ final class ProceduralDuck: CharacterActor {
     }
 
     func play(_ mood: CompanionMood) {
+        gestureTask?.cancel()
         stopAll()
         let hr = Self.headRest, tr = Self.torsoRest, lw = Self.leftWingRest, rw = Self.rightWingRest, br = Self.beakRest
         switch mood {
@@ -165,6 +174,26 @@ final class ProceduralDuck: CharacterActor {
         }
     }
 
+    /// Los "clips" del pato son sus propios estados: hace el del nombre durante un momento.
+    func perform(_ clip: ClipSource, loops: Bool, completion: @escaping @MainActor () -> Void) {
+        gestureTask?.cancel()
+        guard let mood = CompanionMood(rawValue: clip.name) else {
+            completion()
+            return
+        }
+        play(mood)
+        guard !loops else { return }
+        gestureTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.gestureSeconds / clip.playbackSpeed))
+            guard !Task.isCancelled, self != nil else { return }
+            completion()
+        }
+    }
+
+    func variants(for mood: CompanionMood) -> Int { 1 }
+
+    func apply(_ pack: CharacterPack) {}
+
     func look(toward point: SIMD2<Float>?) {
         var target = Transform()
         if let p = point {
@@ -173,7 +202,10 @@ final class ProceduralDuck: CharacterActor {
         root.move(to: target, relativeTo: root.parent, duration: 0.25, timingFunction: .easeOut)
     }
 
-    func stop() { blinking(false) }
+    func stop() {
+        gestureTask?.cancel()
+        blinking(false)
+    }
 
     // MARK: Animaciones
 

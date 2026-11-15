@@ -77,6 +77,8 @@ enum AssistantActions {
     @MainActor
     static func items(store: AppStore, recorder: RecordingService, ask: (@MainActor () -> Void)? = nil) -> [AssistantAction] {
         let router = WindowRouter.shared
+        // Con el personaje visible, él muestra el avance: no hace falta la ventana de grabación.
+        let companionShowsRecording = CompanionController.shared?.isVisible ?? false
         var items: [AssistantAction] = []
         items.append(.init(id: "open", title: "Abrir Asistent IA", systemImage: "macwindow") { router.open("main") })
         if !recorder.interrupted.isEmpty, !recorder.phase.isBusy {
@@ -84,7 +86,7 @@ enum AssistantActions {
         }
         if recorder.isRecording {
             items.append(.init(id: "stop", title: "Detener y analizar", systemImage: "stop.circle") {
-                router.open("recorder")
+                if !companionShowsRecording { router.open("recorder") }
                 Task { await recorder.stopAndProcess() }
             })
             // La confirmación está en la ventana de grabación.

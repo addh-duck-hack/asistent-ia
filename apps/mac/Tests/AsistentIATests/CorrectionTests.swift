@@ -82,3 +82,21 @@ private let line = "Yo estuve trabajando en la London de Buenfin, de México, de
     #expect(!RecordingService.Phase.idle.isCancellable)
     #expect(!RecordingService.Phase.finished(sessionId: "s").isCancellable)
 }
+
+@Test func recordingTitleRoundsToTheNearestQuarterHour() throws {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = try #require(TimeZone(identifier: "America/Mexico_City"))
+    func at(_ h: Int, _ m: Int, day: Int = 13) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: h, minute: m))!
+    }
+    func rounded(_ h: Int, _ m: Int) -> Date { RecorderView.roundedToQuarterHour(at(h, m), calendar: calendar) }
+    #expect(rounded(8, 58) == at(9, 0))
+    #expect(rounded(9, 4) == at(9, 0))
+    #expect(rounded(9, 7) == at(9, 0))
+    #expect(rounded(9, 8) == at(9, 15))
+    #expect(rounded(9, 12) == at(9, 15))
+    #expect(rounded(9, 30) == at(9, 30))
+    #expect(rounded(9, 52) == at(9, 45))
+    #expect(rounded(9, 53) == at(10, 0))
+    #expect(rounded(23, 55) == at(0, 0, day: 14)) // cambia de día
+}

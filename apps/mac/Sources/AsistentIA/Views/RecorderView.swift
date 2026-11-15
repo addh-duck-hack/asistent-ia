@@ -9,6 +9,8 @@ struct RecorderView: View {
 
     @State private var projectId: String?
     @State private var title = RecorderView.defaultTitle()
+    /// Último título puesto automáticamente: si el usuario no lo cambió, se actualiza al volver a abrir la ventana.
+    @State private var autoTitle = ""
     @AppStorage("lastAnalysisDepth") private var depth: AnalysisDepth = .standard
     @AppStorage("recordingConsentAck") private var consent = false
     @AppStorage(VoiceStore.enabledKey) private var separateVoices = true
@@ -43,7 +45,18 @@ struct RecorderView: View {
         }
         .padding(24)
         .frame(width: 460)
-        .onChange(of: recorder.phase) { if !recorder.phase.isCancellable { confirmingCancel = false } }
+        .onChange(of: recorder.phase) { old, new in
+            if !new.isCancellable { confirmingCancel = false }
+            // El personaje cierra la ventana y deja la grabación lista para otra: título nuevo.
+            if case .finished = old, new == .idle { title = Self.defaultTitle(); autoTitle = title }
+        }
+        .onAppear {
+            // La ventana conserva su estado al cerrarla: si el título sigue siendo el automático, se pone la hora de ahora.
+            if recorder.phase == .idle, autoTitle.isEmpty || title == autoTitle {
+                title = Self.defaultTitle()
+                autoTitle = title
+            }
+        }
         .task {
             if store.projects.isEmpty || store.profiles.isEmpty { await store.loadProjects() }
             if projectId == nil { projectId = store.selectedProjectId ?? store.projects.first?.id }
@@ -186,7 +199,7 @@ struct RecorderView: View {
             Text("Claude está analizando la sesión; el resultado aparece en la ventana principal.")
                 .foregroundStyle(.secondary)
             HStack {
-                Button("Nueva grabación") { title = Self.defaultTitle(); recorder.reset() }
+                Button("Nueva grabación") { title = Self.defaultTitle(); autoTitle = title; recorder.reset() }
                 Spacer()
                 Button("Ver sesión") {
                     Task { await store.show(sessionId: sessionId, projectId: projectId) }
@@ -213,8 +226,16 @@ struct RecorderView: View {
         }
     }
 
-    static func defaultTitle() -> String {
-        "Reunión \(Date.now.formatted(date: .abbreviated, time: .shortened))"
+    /// "Reunión 13 Nov 2026 at 9:00": la hora va al cuarto de hora más cercano
+    /// (8:58 y 9:04 → 9:00, 9:12 → 9:15), que es la hora a la que se agendan las reuniones.
+    static func defaultTitle(now: Date = .now) -> String {
+        "Reunión \(roundedToQuarterHour(now).formatted(date: .abbreviated, time: .shortened))"
+    }
+
+    static func roundedToQuarterHour(_ date: Date, calendar: Calendar = .current) -> Date {
+        guard let hour = calendar.dateInterval(of: .hour, for: date)?.start else { return date }
+        let quarters = (date.timeIntervalSince(hour) / 900).rounded(.toNearestOrAwayFromZero)
+        return hour.addingTimeInterval(quarters * 900)
     }
 }
 

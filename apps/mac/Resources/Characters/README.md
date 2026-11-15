@@ -15,6 +15,25 @@ Si la carpeta no trae `character.json`, se genera uno mapeando los archivos por 
 `sad.usdz`, `wave.usdz` (o `alert`), `sleep.usdz`. Los estados que falten usan otro
 (`happy` → `talking` → `idle`, etc.).
 
+## Reacciones y más animaciones
+
+Además de los estados, el personaje puede hacer **gestos sueltos**: al hacerle clic en la
+cabeza, el cuerpo o los pies (`head`, `body`, `feet`), al azar cada cierto tiempo (`random`),
+al aparecer (`greet`), al despertar (`wake`) y mientras se arrastra (`drag`).
+
+Todo se configura en la app, sin editar archivos: **Ajustes → Personaje → Animaciones del
+personaje…** (o menú del personaje → **Animaciones…**). Ahí se importan más `.usdz`, se
+asignan a un estado o a una reacción, se prueban y se ajusta velocidad, recorte, zonas de
+clic e intervalo de los gestos al azar. Cada estado o reacción admite varias animaciones.
+
+En `character.json` queda así (opcional):
+
+```json
+"reactions": { "head": ["pat.usdz", { "file": "dizzy.usdz", "speed": 1.5 }], "feet": "kick.usdz",
+               "random": ["stretch.usdz", "yawn.usdz"], "greet": "wave.usdz", "drag": "hang.usdz" },
+"behavior": { "randomEnabled": true, "randomEvery": [45, 120], "headZone": 0.22, "feetZone": 0.2 }
+```
+
 ## character.json
 
 ```json
@@ -24,13 +43,15 @@ Si la carpeta no trae `character.json`, se genera uno mapeando los archivos por 
              "thinking": { "file": "think.usdz", "start": 0, "end": 2.5 },
              "talking": "talk.usdz", "happy": "jump.usdz", "sad": "sad.usdz",
              "alert": "wave.usdz", "sleeping": "sleep.usdz" },
-  "scale": 1.0, "camera": { "distance": 2.3, "height": 0.65 },
+  "scale": 1.0,
   "fallbacks": { "listening": "idle", "happy": "talking" } }
 ```
 
 - `base`: modelo con el esqueleto (si falta, se usa el primer clip).
 - Un clip puede ser un archivo entero o un recorte en segundos de uno solo.
-- `scale` multiplica el tamaño normalizado (1.2 m de alto); `camera` ajusta el encuadre.
+- La app encuadra sola cada personaje para que llene el cuadro. `scale` es un zoom sobre ese encuadre (1.2 acerca, 0.9 aleja).
+- `aspect` (opcional) es la proporción del cuadro en pantalla, ancho ÷ alto, entre 0.4 y 1.2. Sin ella vale 0.55 (humanoide de pie); súbela si las animaciones se cortan a los lados. También se cambia en Ajustes → Personaje → Proporción.
+- `camera` (opcional, `{ "distance": 3, "height": 0.8 }`) reemplaza el encuadre automático; normalmente no hace falta.
 
 ## Por qué un archivo por estado
 

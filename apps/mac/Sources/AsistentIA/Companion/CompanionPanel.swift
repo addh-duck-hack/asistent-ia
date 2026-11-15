@@ -33,6 +33,8 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 /// (el resto pasa al escritorio) y gestiona arrastre, clic, doble clic, menú y hover.
 final class CompanionInteractionView: NSView {
     var onClick: ((NSPoint) -> Void)?
+    /// Clic derecho: siempre el menú.
+    var onMenu: ((NSPoint) -> Void)?
     var onDoubleClick: (() -> Void)?
     var onDrag: ((CGVector) -> Void)?
     var onDragEnd: (() -> Void)?
@@ -51,7 +53,8 @@ final class CompanionInteractionView: NSView {
 
     /// Elipse centrada que cubre al personaje (no las esquinas transparentes).
     func isInsideCharacter(_ point: NSPoint) -> Bool {
-        let rx = bounds.width * 0.36, ry = bounds.height * 0.46
+        // En un cuadro angosto (humanoide) el personaje llena casi todo el ancho.
+        let rx = min(bounds.width * 0.48, bounds.height * 0.324), ry = bounds.height * 0.46
         guard rx > 0, ry > 0 else { return false }
         let dx = (point.x - bounds.midX) / rx, dy = (point.y - bounds.midY) / ry
         return dx * dx + dy * dy <= 1
@@ -120,6 +123,6 @@ final class CompanionInteractionView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        onClick?(convert(event.locationInWindow, from: nil))
+        onMenu?(convert(event.locationInWindow, from: nil))
     }
 }

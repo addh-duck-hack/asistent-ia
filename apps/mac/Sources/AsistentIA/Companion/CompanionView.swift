@@ -18,8 +18,13 @@ struct CompanionRootView: View {
                     .frame(width: CompanionGeometry.bubbleWidth)
             }
             ZStack {
-                CharacterSceneView(character: controller.character, mood: model.mood, idleVariant: model.idleVariant,
-                                   look: followsCursor ? controller.lookPoint : nil)
+                CharacterSceneView(character: controller.character, revision: controller.characterRevision,
+                                   mood: model.mood, idleVariant: model.idleVariant,
+                                   look: followsCursor ? controller.lookPoint : nil,
+                                   gesture: model.gesture, onGestureEnd: { model.endGesture($0) })
+                if controller.showsZones {
+                    ZoneGuide(behavior: controller.character.pack.behavior)
+                }
                 InteractionLayer(controller: controller)
             }
             .frame(width: controller.characterSize.width, height: controller.characterSize.height)
@@ -39,6 +44,10 @@ private struct InteractionLayer: NSViewRepresentable {
         let controller = controller
         view.onClick = { [weak view] point in
             guard let view else { return }
+            controller.click(at: point, in: view)
+        }
+        view.onMenu = { [weak view] point in
+            guard let view else { return }
             controller.showMenu(at: point, in: view)
         }
         view.onDoubleClick = { controller.openMainWindow() }
@@ -50,6 +59,35 @@ private struct InteractionLayer: NSViewRepresentable {
     }
 
     func updateNSView(_ view: CompanionInteractionView, context: Context) {}
+}
+
+/// Guía de las zonas de clic (cabeza, cuerpo, pies) sobre el personaje, mientras se ajustan.
+private struct ZoneGuide: View {
+    let behavior: CharacterPack.Behavior
+
+    var body: some View {
+        GeometryReader { proxy in
+            let head = proxy.size.height * behavior.headZone
+            let feet = proxy.size.height * behavior.feetZone
+            VStack(spacing: 0) {
+                band("Cabeza", .blue).frame(height: head)
+                band("Cuerpo", .green)
+                band("Pies", .orange).frame(height: feet)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func band(_ title: String, _ color: Color) -> some View {
+        color.opacity(0.22)
+            .overlay(Rectangle().strokeBorder(color.opacity(0.7), lineWidth: 1))
+            .overlay(alignment: .topLeading) {
+                Text(title).font(.caption2.bold()).foregroundStyle(.white)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(color.opacity(0.85), in: RoundedRectangle(cornerRadius: 3))
+                    .padding(3)
+            }
+    }
 }
 
 /// Globo de diálogo con un aviso: texto, contador o progreso y, si hay, una acción.

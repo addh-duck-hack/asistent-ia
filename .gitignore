@@ -25,3 +25,6 @@ apps/mac/**/DerivedData/
 
 # Archivos de sistema
 .DS_Store
+
+#Pruebas Personajes
+test_2b/

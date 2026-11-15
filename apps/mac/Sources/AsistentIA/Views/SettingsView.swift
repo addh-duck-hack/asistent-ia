@@ -34,14 +34,22 @@ struct SettingsView: View {
 
 /// Cada pestaña: un formulario agrupado del alto de su contenido.
 private struct SettingsPane<Content: View>: View {
+    /// Alto fijo con desplazamiento, para pestañas largas; nil = del alto de su contenido.
+    var scrollingHeight: CGFloat?
     @ViewBuilder let content: Content
 
     var body: some View {
-        Form { content }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.vertical, 8)
+        if let scrollingHeight {
+            Form { content }
+                .formStyle(.grouped)
+                .frame(height: scrollingHeight)
+        } else {
+            Form { content }
+                .formStyle(.grouped)
+                .scrollDisabled(true)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 8)
+        }
     }
 }
 
@@ -200,7 +208,7 @@ private struct CharacterSettings: View {
     @State private var importResult: String?
 
     var body: some View {
-        SettingsPane {
+        SettingsPane(scrollingHeight: 660) {
             Section("Presencia") {
                 Picker("Mostrar", selection: $presence) {
                     ForEach(CompanionController.Presence.allCases) { Text($0.label).tag($0.rawValue) }
@@ -220,8 +228,15 @@ private struct CharacterSettings: View {
                     }
                 }
                 Caption("También puedes pellizcar el personaje con el trackpad o usar el control de tamaño de su menú.")
+                if let controller = CompanionController.shared {
+                    CharacterProportionControl(controller: controller)
+                    Caption(controller.character.isEditable
+                        ? "Ancho del cuadro respecto a su alto. Bájala para un humanoide de pie; súbela si alguna animación se corta a los lados. Se guarda con cada personaje."
+                        : "El pato de serie tiene su proporción fija.")
+                }
                 Toggle("Gira hacia el cursor", isOn: $followsCursor)
             }
+            AnimationsSection()
             Section("Avisos") {
                 Toggle("Avisar cumpleaños y aniversarios del equipo", isOn: $birthdays)
             }
@@ -266,6 +281,27 @@ private struct CharacterSettings: View {
             try? FileManager.default.copyItem(at: bundled, to: readme)
         }
         NSWorkspace.shared.open(folder)
+    }
+}
+
+/// Acceso a la pantalla de animaciones (estados, reacciones al clic, gestos al azar y opciones).
+private struct AnimationsSection: View {
+    var body: some View {
+        Section("Animaciones") {
+            if let controller = CompanionController.shared {
+                let pack = controller.character.pack
+                let states = CompanionMood.allCases.filter { !(pack.clips[$0] ?? []).isEmpty }.count
+                let reactions = CompanionReaction.allCases.filter { !(pack.reactions[$0] ?? []).isEmpty }.count
+                LabeledContent("\(pack.name)") {
+                    Text("\(states) de \(CompanionMood.allCases.count) estados · \(reactions) de \(CompanionReaction.allCases.count) reacciones")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Button("Animaciones del personaje…", systemImage: "figure.dance") {
+                WindowRouter.shared.open("animations")
+            }
+            Caption("Agrega animaciones y elige cuál hace en cada estado, al hacerle clic en la cabeza, el cuerpo o los pies, y por su cuenta cada cierto tiempo.")
+        }
     }
 }
 

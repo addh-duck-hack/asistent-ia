@@ -32,15 +32,46 @@ final class CompanionController {
     nonisolated static let followsCursorKey = "companionFollowsCursor"
     nonisolated static let birthdaysKey = "companionBirthdays"
     nonisolated static let lastBirthdayNoticeKey = "companionLastBirthdayNotice"
+    nonisolated static let clickActionKey = "companionClickAction"
     nonisolated static let hideInterval: TimeInterval = 3600
     nonisolated static let analysisTimeout: TimeInterval = 15 * 60
+
+    /// Qué hace un clic normal en el personaje (el clic derecho siempre abre el menú).
+    enum ClickAction: String, CaseIterable, Identifiable {
+        case menu, react
+
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .menu: "Reacciona y abre el menú"
+            case .react: "Solo reacciona (menú con clic derecho)"
+            }
+        }
+
+        static var current: ClickAction {
+            ClickAction(rawValue: UserDefaults.standard.string(forKey: clickActionKey) ?? "") ?? .menu
+        }
+    }
 
     private(set) static var shared: CompanionController?
 
     let model: CompanionModel
     let store: AppStore
     let recorder: RecordingService
-    private(set) var character: InstalledCharacter = .duck
+    private(set) var character: InstalledCharacter = .duck {
+        didSet {
+            model.pack = character.pack
+            guard character.pack.frameAspect != oldValue.pack.frameAspect, panel != nil else { return }
+            let old = CompanionGeometry.characterSize(scale: scale, aspect: oldValue.pack.frameAspect)
+            characterOrigin = CompanionGeometry.recentered(origin: characterOrigin, from: old, to: characterSize)
+            applyLayout(persist: true)
+            positionMenu()
+        }
+    }
+    /// Sube cuando se reemplazan archivos del personaje en disco: la escena lo vuelve a cargar.
+    private(set) var characterRevision = 0
+    /// Muestra sobre el personaje las zonas de cabeza, cuerpo y pies (mientras se ajustan).
+    var showsZones = false
     private(set) var layout = CompanionGeometry.Layout(frame: CGRect(origin: .zero, size: CompanionGeometry.characterSize), bubbleOnLeft: false)
     private(set) var lookPoint: SIMD2<Float>?
     private(set) var isVisible = false
@@ -51,7 +82,7 @@ final class CompanionController {
     private(set) var menuOpen = false
     /// Escala del personaje (Ajustes → Personaje → Tamaño, el menú o pellizcar con el trackpad).
     private(set) var scale: Double = 1
-    var characterSize: CGSize { CompanionGeometry.characterSize(scale: scale) }
+    var characterSize: CGSize { CompanionGeometry.characterSize(scale: scale, aspect: character.pack.frameAspect) }
 
     @ObservationIgnored private var contentSize = CompanionGeometry.characterSize
     @ObservationIgnored private var characterOrigin: CGPoint = .zero
@@ -66,6 +97,8 @@ final class CompanionController {
     @ObservationIgnored private var menuPanel: CompanionPanel?
     @ObservationIgnored private var menuMonitors: [Any] = []
     @ObservationIgnored private var suppressNextClick = false
+    @ObservationIgnored private var lastPhase: RecordingService.Phase = .idle
+    @ObservationIgnored private var dragging = false
 
     init(store: AppStore, recorder: RecordingService) {
         self.store = store
@@ -74,6 +107,11 @@ final class CompanionController {
         UserDefaults.standard.register(defaults: [Self.followsCursorKey: true, Self.birthdaysKey: true, Self.scaleKey: 1.0])
         model.onRestartMic = { [weak self] in self?.recorder.restartMic() }
         model.onRecover = { WindowRouter.shared.open("recorder") }
+        model.onShowRecorder = { WindowRouter.shared.open("recorder") }
+        model.onStopRecording = { [weak self] in
+            guard let self else { return }
+            Task { await self.recorder.stopAndProcess() }
+        }
         Self.shared = self
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main
@@ -99,10 +137,16 @@ final class CompanionController {
         startTicking()
         // ASISTENT_COMPANION_DEMO=1 muestra un globo de ejemplo al arrancar (para probar el diseño).
         // ASISTENT_COMPANION_DEMO=menu abre el menú al arrancar.
+        // ASISTENT_COMPANION_DEMO=animations abre la pantalla de animaciones al arrancar.
         if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "menu" {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(2))
                 if let self, let view = self.panel?.contentView { self.showMenu(at: .zero, in: view) }
+            }
+        } else if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "animations" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                WindowRouter.shared.open("animations")
             }
         } else if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] != nil {
             model.say("¡Hola! Soy tu asistente. Haz clic en mí para grabar, preguntar o ajustar.", mood: .happy,
@@ -126,9 +170,15 @@ final class CompanionController {
         if selectedId != character.id { character = CharacterLibrary.selected() }
         let newScale = CompanionGeometry.clampScale(UserDefaults.standard.double(forKey: Self.scaleKey))
         if newScale != scale {
+            let oldSize = characterSize
             scale = newScale
+            // Con el menú abierto (su control de tamaño), el menú se queda quieto y el personaje
+            // crece hacia el lado contrario; si se moviera, el control se escaparía del cursor.
+            if let menu = menuPanel {
+                characterOrigin = CompanionGeometry.resizedOrigin(origin: characterOrigin, from: oldSize, to: characterSize,
+                                                                  menuOnRight: menu.frame.midX > characterOrigin.x + oldSize.width / 2)
+            }
             applyLayout(persist: true)
-            positionMenu()
         }
         updateVisibility()
     }
@@ -148,7 +198,11 @@ final class CompanionController {
     private func updateVisibility() {
         let hiddenForNow = hiddenUntil.map { $0 > .now } ?? false
         let visible = presence.showsCharacter && !hiddenUntilRelaunch && !hiddenForNow
-        if visible != isVisible { isVisible = visible }
+        if visible != isVisible {
+            isVisible = visible
+            recorderWindowFollowsVisibility(visible)
+            if visible { model.perform(.greet) }
+        }
         let hiddenByUser = presence.showsCharacter && (hiddenUntilRelaunch || hiddenForNow)
         if hiddenByUser != isHiddenByUser { isHiddenByUser = hiddenByUser }
         let until = hiddenForNow ? hiddenUntil : nil
@@ -220,17 +274,78 @@ final class CompanionController {
         characterOrigin = CompanionGeometry.clamp(CGRect(origin: moved, size: characterSize), to: screen).origin
         closeMenu()
         model.wake()
+        if !dragging {
+            dragging = true
+            model.perform(.drag)
+        }
         applyLayout(persist: false)
     }
 
     func endDrag() {
         suppressNextClick = false
+        dragging = false
+        model.endGesture(of: .drag)
         applyLayout(persist: true)
     }
 
     func hover(_ point: SIMD2<Float>?) {
         if point != lookPoint { lookPoint = point }
         if point != nil { model.wake() }
+    }
+
+    // MARK: Clic
+
+    /// Clic en el personaje: reacciona según la zona (cabeza, cuerpo o pies) y, según lo elegido
+    /// en la pantalla de animaciones, abre además el menú. Sin animación para esa zona, abre el menú.
+    func click(at point: NSPoint, in view: NSView) {
+        // Con el menú abierto (o recién cerrado por este mismo clic) el clic solo lo cierra.
+        if suppressNextClick || menuOpen {
+            showMenu(at: point, in: view)
+            return
+        }
+        model.wake()
+        let fraction = view.bounds.height > 0 ? Double(point.y / view.bounds.height) : 0.5
+        let zone = CompanionModel.zone(atHeight: fraction, behavior: character.pack.behavior)
+        let reacted = model.perform(zone)
+        if reacted, ClickAction.current == .react { return }
+        showMenu(at: point, in: view)
+    }
+
+    // MARK: Animaciones del personaje (pantalla de animaciones)
+
+    /// Cambia el paquete del personaje activo y lo guarda en su `character.json`.
+    /// Devuelve false si el personaje no se puede modificar (el pato o uno incluido en la app).
+    @discardableResult
+    func updatePack(_ change: (inout CharacterPack) -> Void) -> Bool {
+        guard character.isEditable, let folder = character.folder else { return false }
+        var pack = character.pack
+        // El modelo base queda fijo: quitar o reordenar animaciones no debe cambiar el modelo.
+        if pack.base == nil { pack.base = pack.baseFile }
+        change(&pack)
+        guard pack != character.pack else { return true }
+        do {
+            try CharacterLibrary.save(pack, in: folder)
+        } catch {
+            model.say("No pude guardar los cambios del personaje: \(error.localizedDescription)", kind: .error, mood: .sad)
+            return false
+        }
+        character = InstalledCharacter(pack: pack, folder: folder)
+        return true
+    }
+
+    /// Vuelve a leer el personaje de disco y recarga sus archivos (se importaron o reemplazaron animaciones).
+    func reloadCharacter() {
+        character = CharacterLibrary.selected()
+        characterRevision += 1
+    }
+
+    /// Reproduce un clip en el personaje para probarlo: una vez, o en bucle unos segundos.
+    func preview(_ clip: ClipSource, loopingFor seconds: TimeInterval? = nil) {
+        previewTask?.cancel()
+        if previewingAll { previewingAll = false }
+        if !isVisible { show() }
+        model.stopPreview()
+        model.play(clip, loopingFor: seconds)
     }
 
     // MARK: Menú, ventanas y chat
@@ -266,7 +381,10 @@ final class CompanionController {
     func menuActions() -> [AssistantAction] {
         var actions = AssistantActions.items(store: store, recorder: recorder, ask: { [weak self] in self?.openChat() })
         let hide = [
-            AssistantAction(id: "hide-1h", title: "Ocultar 1 hora", systemImage: "clock", separatorBefore: true) { [weak self] in
+            AssistantAction(id: "animations", title: "Animaciones…", systemImage: "figure.dance", separatorBefore: true) {
+                WindowRouter.shared.open("animations")
+            },
+            AssistantAction(id: "hide-1h", title: "Ocultar 1 hora", systemImage: "clock") { [weak self] in
                 self?.hide(for: Self.hideInterval)
             },
             AssistantAction(id: "hide", title: "Ocultar hasta reiniciar", systemImage: "eye.slash") { [weak self] in
@@ -412,7 +530,83 @@ final class CompanionController {
         model.apply(phase: inputs.phase, title: inputs.title, micProblem: inputs.micProblem,
                     hasInterrupted: inputs.hasInterrupted, notice: inputs.notice, error: inputs.error)
         if let sessionId = model.takePendingFinished() { watchAnalysis(sessionId: sessionId) }
+        let previous = lastPhase
+        lastPhase = inputs.phase
+        recorderWindowFollowsPhase(from: previous, to: inputs.phase)
         if inputs.peopleCount > 0 { checkBirthdays(force: true) }
+    }
+
+    // MARK: Probar animaciones (Ajustes → Personaje)
+
+    @ObservationIgnored private var previewTask: Task<Void, Never>?
+    private(set) var previewingAll = false
+
+    /// Muestra el personaje (si estaba oculto) y lo pone en un estado unos segundos.
+    func preview(_ mood: CompanionMood) {
+        previewTask?.cancel()
+        if previewingAll { previewingAll = false }
+        if !isVisible { show() }
+        model.preview(mood)
+    }
+
+    /// Recorre todos los estados, unos segundos cada uno.
+    func previewAll(secondsEach: TimeInterval = 4) {
+        previewTask?.cancel()
+        if !isVisible { show() }
+        previewingAll = true
+        previewTask = Task { [weak self] in
+            for mood in CompanionMood.allCases {
+                guard let self, !Task.isCancelled else { return }
+                self.model.preview(mood, for: secondsEach + 1)
+                try? await Task.sleep(for: .seconds(secondsEach))
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.model.stopPreview()
+            self.previewingAll = false
+        }
+    }
+
+    func stopPreview() {
+        previewTask?.cancel()
+        previewingAll = false
+        model.stopPreview()
+        model.stopGesture()
+    }
+
+    // MARK: Ventana de grabación
+
+    /// Con el personaje visible, él muestra la grabación y el procesamiento: la ventana
+    /// "Grabar reunión" solo se usa para empezar (o para confirmar cancelar y ver errores).
+    private func recorderWindowFollowsPhase(from old: RecordingService.Phase, to new: RecordingService.Phase) {
+        guard isVisible else { return }
+        switch new {
+        case .recording:
+            if case .recording = old {} else { closeRecorderWindow() }
+        case .finished:
+            closeRecorderWindow()
+            recorder.reset() // la próxima vez la ventana abre lista para otra grabación
+        default:
+            break
+        }
+    }
+
+    /// Al ocultar el personaje a media grabación vuelve la ventana; al mostrarlo, se cierra.
+    private func recorderWindowFollowsVisibility(_ visible: Bool) {
+        let phase = recorder.phase
+        var finished = false
+        if case .finished = phase { finished = true }
+        var failed = false
+        if case .failed = phase { failed = true }
+        if visible {
+            if phase.isBusy || finished { closeRecorderWindow() }
+            if finished { recorder.reset() }
+        } else if phase.isBusy || finished || failed {
+            WindowRouter.shared.open("recorder")
+        }
+    }
+
+    private func closeRecorderWindow() {
+        NSApp.windows.first { $0.identifier?.rawValue == "recorder" }?.close()
     }
 
     private func startTicking() {
