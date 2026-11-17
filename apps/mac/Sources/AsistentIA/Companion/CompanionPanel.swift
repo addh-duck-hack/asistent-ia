@@ -103,6 +103,13 @@ final class CompanionInteractionView: NSView {
             onDragEnd?()
             return
         }
+        // Control-clic es el clic derecho de quien no lo tiene configurado en el trackpad.
+        if event.modifierFlags.contains(.control) {
+            pendingClick?.cancel()
+            pendingClick = nil
+            onMenu?(convert(event.locationInWindow, from: nil))
+            return
+        }
         if event.clickCount >= 2 {
             pendingClick?.cancel()
             pendingClick = nil

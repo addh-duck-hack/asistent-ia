@@ -235,6 +235,7 @@ private struct CharacterSettings: View {
                         : "El pato de serie tiene su proporción fija.")
                 }
                 Toggle("Gira hacia el cursor", isOn: $followsCursor)
+                SleepAfterPicker()
             }
             AnimationsSection()
             Section("Avisos") {

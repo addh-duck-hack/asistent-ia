@@ -128,6 +128,22 @@ struct CompanionGestureTests {
         #expect(CompanionModel.zone(atHeight: 0.7, behavior: behavior) == .head)
     }
 
+    @Test func onlyReactUsesAnotherZoneWhenTheClickedOneHasNoAnimation() {
+        let model = CompanionModel()
+        let head = ClipSource(file: "head.usdz")
+        model.pack = pack([.head: [head]])
+        // "Reacciona y abre el menú": sin animación en los pies, no reacciona (y se abre el menú).
+        #expect(model.performClick(on: .feet, anyZone: false) == false)
+        #expect(model.gesture == nil)
+        // "Solo reacciona": usa la de la cabeza.
+        #expect(model.performClick(on: .feet, anyZone: true))
+        #expect(model.gesture?.clip == head)
+        // Sin ninguna animación de clic no hay nada que hacer (el clic abre el menú).
+        model.stopGesture()
+        model.pack = pack([:])
+        #expect(model.performClick(on: .body, anyZone: true) == false)
+    }
+
     @Test func reactionsPlayOnceAndDoNotRepeatTheSameClip() {
         let model = CompanionModel()
         let a = ClipSource(file: "a.usdz"), b = ClipSource(file: "b.usdz")
@@ -210,7 +226,7 @@ struct CompanionGestureTests {
         behavior.randomEnabled = true
         model.pack = pack([.random: [ClipSource(file: "stretch.usdz")]], behavior: behavior)
         model.wake()
-        for _ in 0 ..< Int(CompanionModel.sleepAfter / 10) + 2 {
+        for _ in 0 ..< Int(CompanionModel.defaultSleepAfter / 10) + 2 {
             now = now.addingTimeInterval(10)
             model.tick()
             model.stopGesture()
@@ -229,7 +245,7 @@ struct CompanionGestureTests {
         model.pack = pack([.wake: [ClipSource(file: "stretch.usdz")]], behavior: behavior)
         model.wake()
         #expect(model.gesture == nil) // ya estaba despierto
-        now = now.addingTimeInterval(CompanionModel.sleepAfter + 1)
+        now = now.addingTimeInterval(CompanionModel.defaultSleepAfter + 1)
         model.tick()
         #expect(model.mood == .sleeping)
         model.wake()

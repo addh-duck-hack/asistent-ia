@@ -55,7 +55,9 @@ final class CompanionModel {
     /// Tiempo máximo que se espera a que la escena avise que un gesto terminó.
     static let gestureTimeout: TimeInterval = 30
 
-    static let sleepAfter: TimeInterval = 10 * 60
+    static let defaultSleepAfter: TimeInterval = 10 * 60
+    /// Tiempo sin actividad para dormirse; nil = no se duerme nunca (Ajustes → Personaje).
+    var sleepAfter: TimeInterval? = CompanionModel.defaultSleepAfter
     static let idleChangeRange: ClosedRange<TimeInterval> = 20 ... 60
 
     private(set) var bubbles: [Bubble] = []
@@ -150,6 +152,14 @@ final class CompanionModel {
         gesture = Gesture(id: UUID(), clip: clip, loops: reaction.loops, reaction: reaction,
                           until: reaction.loops ? nil : now().addingTimeInterval(Self.gestureTimeout))
         return true
+    }
+
+    /// Clic en una zona. Con `anyZone`, si esa zona no tiene animación se usa la de otra zona de clic
+    /// (cuerpo, cabeza, pies), para que el clic siempre responda cuando ya no abre el menú.
+    func performClick(on zone: CompanionReaction, anyZone: Bool) -> Bool {
+        if perform(zone) { return true }
+        guard anyZone else { return false }
+        return [CompanionReaction.body, .head, .feet].contains { $0 != zone && perform($0) }
     }
 
     /// Reproduce un clip cualquiera (para probarlo): una vez, o en bucle durante `seconds`.
@@ -322,7 +332,7 @@ final class CompanionModel {
             }
         }
         let quiet = phaseMood == .idle && bubbles.isEmpty && !chatOpen
-        asleep = quiet && now.timeIntervalSince(lastInteraction) >= Self.sleepAfter
+        asleep = quiet && sleepAfter.map { now.timeIntervalSince(lastInteraction) >= $0 } == true
         if now >= nextIdleChange {
             idleVariant += 1
             nextIdleChange = now.addingTimeInterval(.random(in: Self.idleChangeRange))

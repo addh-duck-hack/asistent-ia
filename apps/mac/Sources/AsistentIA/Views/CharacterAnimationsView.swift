@@ -26,7 +26,7 @@ extension CompanionMood {
         case .happy: "Cuando se crea la sesión y cuando el análisis está listo."
         case .sad: "Cuando algo falla."
         case .alert: "Cuando hay un problema con el micrófono o una grabación interrumpida."
-        case .sleeping: "Después de 10 minutos sin actividad."
+        case .sleeping: CompanionController.sleepDescription(minutes: CompanionController.sleepMinutes) + " Se cambia aquí abajo o en Ajustes → Personaje."
         }
     }
 }
@@ -389,6 +389,7 @@ private struct SlotPane: View {
                     }
                     .disabled(!editable)
                 }
+                if mood == .sleeping { SleepAfterPicker() }
                 Button("Probar el estado «\(mood.label)»", systemImage: "play.circle") { controller.preview(mood) }
             }
         case .reaction(.random):
@@ -676,6 +677,21 @@ private struct LibraryPane: View {
 
 // MARK: Opciones
 
+/// Cuánto tiempo sin actividad espera el personaje para dormirse. Vale para todos los personajes.
+struct SleepAfterPicker: View {
+    @AppStorage(CompanionController.sleepMinutesKey) private var minutes = 10
+
+    var body: some View {
+        Picker("Se duerme después de", selection: $minutes) {
+            ForEach(CompanionController.sleepMinuteOptions, id: \.self) { Text(CompanionController.sleepLabel(minutes: $0)).tag($0) }
+            if !CompanionController.sleepMinuteOptions.contains(minutes) {
+                Text(CompanionController.sleepLabel(minutes: minutes)).tag(minutes)
+            }
+        }
+        .help("Sin actividad: sin grabar, sin avisos a la vista, sin chat abierto y sin pasar el cursor ni hacerle clic.")
+    }
+}
+
 /// Proporción del cuadro del personaje en pantalla (ancho respecto al alto). Se guarda en su `character.json`.
 struct CharacterProportionControl: View {
     let controller: CompanionController
@@ -736,7 +752,9 @@ private struct OptionsPane: View {
                 Picker("Un clic", selection: $clickAction) {
                     ForEach(CompanionController.ClickAction.allCases) { Text($0.label).tag($0.rawValue) }
                 }
-                Text("Si la zona no tiene animación, el clic abre el menú. El clic derecho siempre abre el menú y el doble clic, la ventana principal.")
+                Text(clickAction == CompanionController.ClickAction.react.rawValue
+                     ? "Si la zona no tiene animación, usa la de otra zona de clic; solo si el personaje no tiene ninguna, el clic abre el menú. El clic derecho (o ⌃clic) siempre abre el menú y el doble clic, la ventana principal."
+                     : "Si la zona no tiene animación, solo abre el menú. El clic derecho (o ⌃clic) siempre abre el menú y el doble clic, la ventana principal.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Zonas de clic") {

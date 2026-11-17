@@ -115,17 +115,38 @@ struct CompanionModelTests {
         #expect(model.bubbles.isEmpty)
     }
 
+    @Test func sleepTimeIsConfigurableAndCanBeOff() {
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        let model = CompanionModel(now: { now })
+        model.sleepAfter = 2 * 60
+        now = now.addingTimeInterval(119)
+        model.tick()
+        #expect(!model.asleep)
+        now = now.addingTimeInterval(1)
+        model.tick()
+        #expect(model.asleep)
+        // "Nunca": despierta y no vuelve a dormirse.
+        model.sleepAfter = nil
+        model.tick()
+        #expect(!model.asleep)
+        now = now.addingTimeInterval(24 * 3600)
+        model.tick()
+        #expect(!model.asleep)
+        #expect(CompanionController.sleepDescription(minutes: 0) == "Nunca se duerme.")
+        #expect(CompanionController.sleepDescription(minutes: 15) == "Después de 15 minutos sin actividad.")
+    }
+
     @Test func sleepsAfterTenMinutesAndWakes() {
         var now = Date(timeIntervalSince1970: 1_700_000_000)
         let model = CompanionModel(now: { now })
-        now = now.addingTimeInterval(CompanionModel.sleepAfter)
+        now = now.addingTimeInterval(CompanionModel.defaultSleepAfter)
         model.tick()
         #expect(model.asleep)
         #expect(model.mood == .sleeping)
         model.wake()
         #expect(model.mood == .idle)
 
-        now = now.addingTimeInterval(CompanionModel.sleepAfter)
+        now = now.addingTimeInterval(CompanionModel.defaultSleepAfter)
         model.say("Hola", dismissAfter: nil)
         model.tick()
         #expect(!model.asleep) // con un globo a la vista no duerme

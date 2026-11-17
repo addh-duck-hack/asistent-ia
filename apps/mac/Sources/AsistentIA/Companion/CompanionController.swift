@@ -33,6 +33,29 @@ final class CompanionController {
     nonisolated static let birthdaysKey = "companionBirthdays"
     nonisolated static let lastBirthdayNoticeKey = "companionLastBirthdayNotice"
     nonisolated static let clickActionKey = "companionClickAction"
+    /// Minutos sin actividad para que el personaje se duerma; 0 = nunca.
+    nonisolated static let sleepMinutesKey = "companionSleepMinutes"
+    nonisolated static let sleepMinuteOptions = [1, 2, 5, 10, 15, 30, 60, 0]
+
+    /// "Después de 10 minutos sin actividad." o "Nunca se duerme."
+    nonisolated static func sleepDescription(minutes: Int) -> String {
+        switch minutes {
+        case ..<1: "Nunca se duerme."
+        case 1: "Después de 1 minuto sin actividad."
+        default: "Después de \(minutes) minutos sin actividad."
+        }
+    }
+
+    nonisolated static func sleepLabel(minutes: Int) -> String {
+        switch minutes {
+        case ..<1: "Nunca"
+        case 1: "1 minuto"
+        case 60: "1 hora"
+        default: "\(minutes) minutos"
+        }
+    }
+
+    nonisolated static var sleepMinutes: Int { UserDefaults.standard.integer(forKey: sleepMinutesKey) }
     nonisolated static let hideInterval: TimeInterval = 3600
     nonisolated static let analysisTimeout: TimeInterval = 15 * 60
 
@@ -44,7 +67,7 @@ final class CompanionController {
         var label: String {
             switch self {
             case .menu: "Reacciona y abre el menú"
-            case .react: "Solo reacciona (menú con clic derecho)"
+            case .react: "Solo reacciona (menú con clic derecho o ⌃clic)"
             }
         }
 
@@ -104,7 +127,7 @@ final class CompanionController {
         self.store = store
         self.recorder = recorder
         model = CompanionModel()
-        UserDefaults.standard.register(defaults: [Self.followsCursorKey: true, Self.birthdaysKey: true, Self.scaleKey: 1.0])
+        UserDefaults.standard.register(defaults: [Self.followsCursorKey: true, Self.birthdaysKey: true, Self.scaleKey: 1.0, Self.sleepMinutesKey: 10])
         model.onRestartMic = { [weak self] in self?.recorder.restartMic() }
         model.onRecover = { WindowRouter.shared.open("recorder") }
         model.onShowRecorder = { WindowRouter.shared.open("recorder") }
@@ -130,6 +153,7 @@ final class CompanionController {
         self.panel = panel
         character = CharacterLibrary.selected()
         scale = CompanionGeometry.clampScale(UserDefaults.standard.double(forKey: Self.scaleKey))
+        applySleepSetting()
         characterOrigin = savedOrigin() ?? CompanionGeometry.defaultOrigin(in: mainScreen(), character: characterSize)
         applyLayout(persist: true)
         updateVisibility()
@@ -168,6 +192,7 @@ final class CompanionController {
         // Releer la biblioteca solo si cambió el personaje elegido (el pellizco escribe aquí muchas veces por segundo).
         let selectedId = UserDefaults.standard.string(forKey: CharacterLibrary.selectedKey) ?? CharacterPack.builtInId
         if selectedId != character.id { character = CharacterLibrary.selected() }
+        applySleepSetting()
         let newScale = CompanionGeometry.clampScale(UserDefaults.standard.double(forKey: Self.scaleKey))
         if newScale != scale {
             let oldSize = characterSize
@@ -181,6 +206,14 @@ final class CompanionController {
             applyLayout(persist: true)
         }
         updateVisibility()
+    }
+
+    private func applySleepSetting() {
+        let minutes = Self.sleepMinutes
+        let after: TimeInterval? = minutes > 0 ? TimeInterval(minutes) * 60 : nil
+        guard model.sleepAfter != after else { return }
+        model.sleepAfter = after
+        model.tick() // "Nunca" lo despierta en el momento; un tiempo menor lo duerme si ya pasó
     }
 
     func setScale(_ value: Double) {
@@ -306,8 +339,12 @@ final class CompanionController {
         model.wake()
         let fraction = view.bounds.height > 0 ? Double(point.y / view.bounds.height) : 0.5
         let zone = CompanionModel.zone(atHeight: fraction, behavior: character.pack.behavior)
-        let reacted = model.perform(zone)
-        if reacted, ClickAction.current == .react { return }
+        // "Solo reacciona": el clic izquierdo nunca abre el menú mientras el personaje tenga alguna
+        // animación de clic; si la zona no tiene, usa la de otra zona. Sin ninguna, abre el menú
+        // para que el clic no se quede sin hacer nada.
+        let onlyReact = ClickAction.current == .react
+        let reacted = model.performClick(on: zone, anyZone: onlyReact)
+        if reacted, onlyReact { return }
         showMenu(at: point, in: view)
     }
 
