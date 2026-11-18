@@ -12,9 +12,13 @@ struct Project: Codable, Identifiable, Hashable {
     var archived: Bool?
     /// Términos que la transcripción confunde ("Toks", "Landing").
     var vocabulary: [String]?
+    /// Resumen semanal automático (lunes 8:00). Falta en servidores anteriores: cuenta como activado.
+    var weeklyDigest: Bool?
+
+    var weeklyDigestEnabled: Bool { weeklyDigest ?? true }
 
     enum CodingKeys: String, CodingKey {
-        case id = "_id", name, description, context, archived, vocabulary
+        case id = "_id", name, description, context, archived, vocabulary, weeklyDigest
     }
 }
 
@@ -195,6 +199,12 @@ struct CreateProjectRequest: Encodable {
     let description: String
     let context: String
     var vocabulary: [String] = []
+    var weeklyDigest: Bool? = nil
+}
+
+/// Cambia solo el resumen semanal automático del proyecto.
+struct ProjectDigestPatch: Encodable {
+    let weeklyDigest: Bool
 }
 
 struct CreateSessionRequest: Encodable {

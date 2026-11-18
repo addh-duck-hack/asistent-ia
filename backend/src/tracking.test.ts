@@ -259,6 +259,16 @@ describe("resumen semanal", () => {
     expect(await m.DigestBatchModel.countDocuments({ status: "done" })).toBe(1);
   });
 
+  it("salta los proyectos con el resumen automático desactivado", async () => {
+    const project = await seedWeek();
+    await m.ProjectModel.updateOne({ _id: project._id }, { weeklyDigest: false });
+    const create = vi.fn();
+    const fake = { messages: { batches: { create } } } as unknown as Anthropic;
+    await digestJobs.runWeeklyDigest(new Date("2026-10-26T14:00:00Z"), fake);
+    expect(create).not.toHaveBeenCalled();
+    // A mano se sigue pudiendo generar: la ruta no mira weeklyDigest.
+  });
+
   it("sin sesiones en la semana no envía lote", async () => {
     const create = vi.fn();
     const fake = { messages: { batches: { create } } } as unknown as Anthropic;

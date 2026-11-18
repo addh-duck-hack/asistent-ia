@@ -18,14 +18,28 @@ export function cleanVocabulary(list: unknown): string[] | undefined {
   return out.slice(0, 100);
 }
 
+/** Solo booleanos: cualquier otro valor se ignora (no cambia el campo). */
+function bool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 projectsRouter.get("/", async (req, res) => {
   const filter = req.query.archived === "true" ? {} : { archived: false };
   res.json(await ProjectModel.find(filter).sort({ name: 1 }));
 });
 
 projectsRouter.post("/", async (req, res) => {
-  const { name, description, context, members, vocabulary } = req.body ?? {};
-  res.status(201).json(await ProjectModel.create({ name, description, context, members, vocabulary: cleanVocabulary(vocabulary) }));
+  const { name, description, context, members, vocabulary, weeklyDigest } = req.body ?? {};
+  res.status(201).json(
+    await ProjectModel.create({
+      name,
+      description,
+      context,
+      members,
+      vocabulary: cleanVocabulary(vocabulary),
+      weeklyDigest: bool(weeklyDigest),
+    }),
+  );
 });
 
 projectsRouter.get("/:id", async (req, res) => {
@@ -38,10 +52,10 @@ projectsRouter.get("/:id", async (req, res) => {
 });
 
 projectsRouter.patch("/:id", async (req, res) => {
-  const { name, description, context, members, archived, vocabulary } = req.body ?? {};
+  const { name, description, context, members, archived, vocabulary, weeklyDigest } = req.body ?? {};
   const project = await ProjectModel.findByIdAndUpdate(
     req.params.id,
-    { name, description, context, members, archived, vocabulary: cleanVocabulary(vocabulary) },
+    { name, description, context, members, archived, vocabulary: cleanVocabulary(vocabulary), weeklyDigest: bool(weeklyDigest) },
     { returnDocument: "after", runValidators: true },
   );
   if (!project) {

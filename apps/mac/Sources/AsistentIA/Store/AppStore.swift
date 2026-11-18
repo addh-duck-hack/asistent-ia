@@ -12,11 +12,12 @@ final class AppStore {
     var profiles: [AnalysisProfile] = []
 
     enum ProjectTab: String, CaseIterable, Identifiable {
-        case sessions = "Sesiones", items = "Pendientes", digests = "Resumen semanal"
+        case sessions = "Sesiones", items = "Pendientes", digests = "Resumen semanal", settings = "Configuración"
         var id: String { rawValue }
     }
 
-    var tab: ProjectTab = .sessions
+    /// `-projectTab Configuración` al arrancar abre esa pestaña (para revisar pantallas sin clics).
+    var tab: ProjectTab = ProjectTab(rawValue: UserDefaults.standard.string(forKey: "projectTab") ?? "") ?? .sessions
     var items: [TrackedItem] = []
     var showDoneItems = false
     var selectedItemId: String?
@@ -483,6 +484,19 @@ final class AppStore {
         case .sessions: await loadSessions()
         case .items: await loadItems()
         case .digests: await loadDigests()
+        case .settings: break // usa el proyecto de la lista, ya cargado
+        }
+    }
+
+    /// Activa o desactiva el resumen semanal automático del proyecto (se guarda al momento).
+    func setWeeklyDigest(_ enabled: Bool, projectId: String) async {
+        await run {
+            let project = try await api.setWeeklyDigest(enabled, projectId: projectId)
+            if let i = projects.firstIndex(where: { $0.id == projectId }) { projects[i] = project }
+        }
+        // Un servidor sin desplegar ignora el campo y no lo devuelve.
+        if selectedProject?.id == projectId, selectedProject?.weeklyDigest == nil {
+            errorMessage = "El servidor todavía no guarda esta opción: hay que desplegar la versión nueva del backend."
         }
     }
 

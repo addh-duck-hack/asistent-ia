@@ -7,6 +7,18 @@ struct DigestListView: View {
     var body: some View {
         @Bindable var store = store
         VStack(spacing: 0) {
+            if store.selectedProject?.weeklyDigestEnabled == false {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "calendar.badge.minus").foregroundStyle(.secondary)
+                    Text("Resumen automático de los lunes desactivado.")
+                    Spacer(minLength: 4)
+                    Button("Configurar") { store.tab = .settings }
+                        .buttonStyle(.link)
+                }
+                .font(.caption)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                Divider()
+            }
             if store.digests.isEmpty {
                 ContentUnavailableView("Sin resúmenes", systemImage: "calendar",
                                        description: Text("Cada lunes a las 8:00 se genera el resumen de la semana. También puedes generarlo ahora."))

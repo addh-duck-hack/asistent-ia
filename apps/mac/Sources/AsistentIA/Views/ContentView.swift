@@ -7,7 +7,6 @@ struct ContentView: View {
     @State private var showNewProject = false
     @State private var showNewPerson = false
     @State private var showNewSession = false
-    @State private var editingProject: Project?
     /// Roles contraídos en la barra lateral (uno por línea); por defecto, todos abiertos.
     @AppStorage("collapsedRoles") private var collapsedRoles = ""
 
@@ -34,7 +33,10 @@ struct ContentView: View {
                         Label(project.name, systemImage: "folder")
                             .tag(AppStore.SidebarItem.project(project.id))
                             .contextMenu {
-                                Button("Editar proyecto…") { editingProject = project }
+                                Button("Configuración del proyecto") {
+                                    store.selectedProjectId = project.id
+                                    store.tab = .settings
+                                }
                                 Button("Preguntar sobre este proyecto…") { store.startConversation(projectId: project.id) }
                                 Button("Exportar proyecto a Obsidian") { Task { await store.export(project: project) } }
                                     .disabled(store.exporting)
@@ -96,6 +98,7 @@ struct ContentView: View {
                         case .sessions: SessionListView()
                         case .items: ItemsListView()
                         case .digests: DigestListView()
+                        case .settings: ProjectSettingsSidebar()
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,6 +136,12 @@ struct ContentView: View {
                     } else {
                         ContentUnavailableView("Sin resumen seleccionado", systemImage: "calendar")
                     }
+                case .settings:
+                    if let project = store.selectedProject {
+                        ProjectSettingsDetail(project: project).id(project.id)
+                    } else {
+                        ContentUnavailableView("Selecciona un proyecto", systemImage: "folder")
+                    }
                 }
             }
         }
@@ -147,7 +156,6 @@ struct ContentView: View {
             Text(deletion.message)
         }
         .sheet(isPresented: $showNewProject) { NewProjectSheet() }
-        .sheet(item: $editingProject) { NewProjectSheet(project: $0) }
         .sheet(isPresented: $showNewPerson) { PersonEditorSheet(person: nil) }
         .sheet(isPresented: $showNewSession) { NewSessionSheet() }
         .overlay(alignment: .bottom) {

@@ -55,6 +55,21 @@ describe("api", () => {
     }).then((r) => r.json());
     expect(patched.description).toBe("v2");
     expect(patched.name).toBe("Portal clientes");
+    expect(created.weeklyDigest).toBe(true); // activado por defecto
+
+    const off = await fetch(`${base}/api/projects/${created._id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ weeklyDigest: false }),
+    }).then((r) => r.json());
+    expect(off.weeklyDigest).toBe(false);
+    expect(off.description).toBe("v2");
+    const ignored = await fetch(`${base}/api/projects/${created._id}`, {
+      method: "PATCH",
+      headers: auth,
+      body: JSON.stringify({ weeklyDigest: "sí" }),
+    }).then((r) => r.json());
+    expect(ignored.weeklyDigest).toBe(false); // solo booleanos
 
     const list = await fetch(`${base}/api/projects`, { headers: auth }).then((r) => r.json());
     expect(list).toHaveLength(1);

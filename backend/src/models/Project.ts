@@ -11,6 +11,8 @@ const projectSchema = new Schema(
     // dan a Whisper como pista y a Claude para escribirlos bien.
     vocabulary: [{ type: String, trim: true }],
     archived: { type: Boolean, default: false },
+    // Resumen semanal automático (lunes 8:00). Si es false, solo se genera a mano.
+    weeklyDigest: { type: Boolean, default: true },
   },
   { timestamps: true },
 );

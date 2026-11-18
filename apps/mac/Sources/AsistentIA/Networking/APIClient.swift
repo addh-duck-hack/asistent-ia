@@ -68,6 +68,10 @@ struct APIClient: Sendable {
         try await request("/api/projects/\(id)", method: "PATCH", body: body, as: Project.self)
     }
 
+    func setWeeklyDigest(_ enabled: Bool, projectId: String) async throws -> Project {
+        try await request("/api/projects/\(projectId)", method: "PATCH", body: ProjectDigestPatch(weeklyDigest: enabled), as: Project.self)
+    }
+
     /// Buscar y reemplazar en la transcripción de una sesión; devuelve cuántos cambios hubo.
     func replaceInTranscript(sessionId: String, find: String, replace: String) async throws -> Int {
         struct Body: Encodable { let find: String; let replace: String }

@@ -4,20 +4,26 @@ import { buildDigestBatchParams, buildDigestInput, parseBatchDigest } from "../l
 import { estimateCostUsd } from "../llm/pricing.js";
 import { getProfile } from "../llm/profiles.js";
 import { DIGEST_PROMPT_VERSION } from "../llm/prompts/digest.js";
-import { DigestBatchModel, DigestModel, SessionModel } from "../models/index.js";
+import { DigestBatchModel, DigestModel, ProjectModel, SessionModel } from "../models/index.js";
 
 export const WEEKLY_DIGEST_JOB = "weekly-digest";
 export const POLL_DIGEST_BATCHES_JOB = "poll-digest-batches";
 
 /**
- * Lunes 8:00: un resumen por cada proyecto con sesiones en los últimos 7 días,
+ * Lunes 8:00: un resumen por cada proyecto con sesiones en los últimos 7 días
+ * (salvo los que tienen el resumen automático desactivado),
  * todos en un solo lote de la Batch API (50% más barato; no hay prisa).
  */
 export async function runWeeklyDigest(now = new Date(), client: Anthropic = getClaude()) {
   const periodEnd = now;
   const periodStart = new Date(now.getTime() - 7 * 86_400_000);
+  const withSessions = await SessionModel.distinct("projectId", {
+    status: "done",
+    date: { $gte: periodStart, $lte: periodEnd },
+  });
+  // weeklyDigest falta en proyectos creados antes del campo: cuentan como activados.
   const projectIds: string[] = (
-    await SessionModel.distinct("projectId", { status: "done", date: { $gte: periodStart, $lte: periodEnd } })
+    await ProjectModel.find({ _id: { $in: withSessions }, weeklyDigest: { $ne: false } }).distinct("_id")
   ).map(String);
 
   const inputs = (await Promise.all(projectIds.map((id) => buildDigestInput(id, periodStart, periodEnd)))).filter(
