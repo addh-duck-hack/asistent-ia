@@ -9,12 +9,13 @@ struct CompanionRootView: View {
     var body: some View {
         let model = controller.model
         let layout = controller.layout
+        let tip = SpeechBalloonShape.tip(characterWidth: controller.characterSize.width, bubbleWidth: CompanionGeometry.bubbleWidth)
         VStack(alignment: layout.bubbleOnLeft ? .trailing : .leading, spacing: CompanionGeometry.spacing) {
             if model.chatOpen {
-                ChatBubble(controller: controller)
+                ChatBubble(controller: controller, tailOnRight: layout.bubbleOnLeft, tip: tip)
                     .frame(width: CompanionGeometry.bubbleWidth)
             } else if let bubble = model.current {
-                SpeechBubble(bubble: bubble, tailOnRight: layout.bubbleOnLeft) { model.dismissCurrent() }
+                SpeechBubble(bubble: bubble, tailOnRight: layout.bubbleOnLeft, tip: tip) { model.dismissCurrent() }
                     .frame(width: CompanionGeometry.bubbleWidth)
             }
             ZStack {
@@ -91,17 +92,28 @@ private struct ZoneGuide: View {
 }
 
 /// Globo de diálogo con un aviso: texto, contador o progreso y, si hay, una acción.
+/// Tiene forma de globo de cómic: rectángulo de esquinas redondeadas a mano, borde negro grueso,
+/// pico recto hacia el personaje y sombra suave.
 struct SpeechBubble: View {
     let bubble: CompanionModel.Bubble
     let tailOnRight: Bool
+    /// Dónde cae la punta del pico (ver `SpeechBalloonShape.tip`).
+    var tip: CGFloat = 0.8
     let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(bubble.text)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.trailing, 16)
+            HStack(alignment: .top, spacing: 6) {
+                Text(bubble.text)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(action: dismiss) {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Cerrar")
+            }
             if let since = bubble.elapsedSince {
                 TimelineView(.periodic(from: since, by: 1)) { context in
                     Text(Duration.seconds(context.date.timeIntervalSince(since)).formatted(.time(pattern: .hourMinuteSecond)))
@@ -118,47 +130,97 @@ struct SpeechBubble: View {
                     .controlSize(.small)
             }
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(tint.opacity(0.6)))
-        .overlay(alignment: .topTrailing) {
-            Button(action: dismiss) {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .padding(6)
-            .help("Cerrar")
-        }
-        .overlay(alignment: tailOnRight ? .bottomTrailing : .bottomLeading) {
-            BubbleTail(tint: tint).offset(x: tailOnRight ? -28 : 28, y: 9)
-        }
-        .padding(.bottom, 10)
-    }
-
-    private var tint: Color {
-        switch bubble.kind {
-        case .error: .red
-        case .progress: .blue
-        case .info: .green
-        }
+        // Alto mínimo: con una sola línea el globo no queda como una píldora.
+        .frame(minHeight: 40, alignment: .center)
+        .comicBalloon(tailOnRight: tailOnRight, tip: tip,
+                      stroke: bubble.kind == .error ? Color(red: 0.8, green: 0.15, blue: 0.15) : .black)
     }
 }
 
-/// Pico del globo, apuntando al personaje.
-private struct BubbleTail: View {
-    let tint: Color
+extension View {
+    /// Dibuja el contenido dentro del globo de cómic (aviso o chat), con su pico hacia el personaje.
+    func comicBalloon(tailOnRight: Bool, tip: CGFloat, stroke: Color = .black) -> some View {
+        let margin = SpeechBalloonShape.margin
+        return padding(.horizontal, 20 + margin)
+            .padding(.top, 18 + margin)
+            .padding(.bottom, 18 + margin + SpeechBalloonShape.tailHeight)
+            .foregroundStyle(.black)
+            .background {
+                let shape = SpeechBalloonShape(tailOnRight: tailOnRight, tip: tip)
+                ZStack {
+                    shape.fill(.white)
+                    shape.stroke(stroke, style: StrokeStyle(lineWidth: SpeechBalloonShape.lineWidth, lineJoin: .round))
+                }
+                .compositingGroup()
+                .shadow(color: .black.opacity(0.35), radius: 3, x: -3, y: 3)
+            }
+            // El globo es blanco siempre, así que el texto y los controles van en claro también en modo oscuro.
+            .environment(\.colorScheme, .light)
+    }
+}
 
-    var body: some View {
-        Image(systemName: "arrowtriangle.down.fill")
-            .font(.system(size: 16))
-            .foregroundStyle(.regularMaterial)
-            .overlay(Image(systemName: "arrowtriangle.down").font(.system(size: 16)).foregroundStyle(tint.opacity(0.6)))
+/// Contorno del globo: rectángulo con esquinas redondeadas un poco irregulares (como dibujado a mano)
+/// y un pico recto abajo, en un solo trazo.
+struct SpeechBalloonShape: Shape {
+    static let tailHeight: CGFloat = 22
+    static let lineWidth: CGFloat = 3.5
+    /// Espacio alrededor del dibujo para el borde y la sombra (que cae hacia abajo a la izquierda).
+    static let margin: CGFloat = 8
+    var tailOnRight = true
+    /// Punta del pico, en fracción del ancho medida desde el lado contrario al pico (0.5 = centro).
+    var tip: CGFloat = 0.8
+
+    /// Punta sobre el centro del personaje, que queda pegado al lado del pico.
+    static func tip(characterWidth: CGFloat, bubbleWidth: CGFloat) -> CGFloat {
+        min(max(1 - characterWidth / 2 / max(bubbleWidth, 1), 0.5), 0.8)
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: Self.margin, dy: Self.margin)
+        let b = CGRect(x: r.minX, y: r.minY, width: r.width, height: r.height - Self.tailHeight)
+        // Coordenadas para el pico a la derecha; se reflejan si va a la izquierda.
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: tailOnRight ? x : b.minX + b.maxX - x, y: y)
+        }
+        // Radios de cada esquina (horizontal, vertical): un poco distintos entre sí, como en el dibujo.
+        let cap = b.height * 0.36
+        let tl = (min(b.width * 0.12, 34), min(26, cap)), tr = (min(b.width * 0.09, 26), min(34, cap))
+        let br = (min(b.width * 0.08, 24), min(24, cap)), bl = (min(b.width * 0.11, 30), min(26, cap))
+        let k: CGFloat = 0.55
+        let bulge: CGFloat = 1.5
+        let tipX = b.minX + b.width * tip
+        var path = Path()
+        path.move(to: p(b.minX + tl.0, b.minY + 1))
+        // Arriba: casi recta, sube apenas hacia la derecha.
+        path.addLine(to: p(b.maxX - tr.0, b.minY))
+        path.addCurve(to: p(b.maxX, b.minY + tr.1), control1: p(b.maxX - tr.0 * (1 - k), b.minY),
+                      control2: p(b.maxX, b.minY + tr.1 * (1 - k)))
+        // Derecha: apenas abombada.
+        path.addQuadCurve(to: p(b.maxX - 1, b.maxY - br.1), control: p(b.maxX + bulge, b.midY))
+        path.addCurve(to: p(b.maxX - 1 - br.0, b.maxY), control1: p(b.maxX - 1, b.maxY - br.1 * (1 - k)),
+                      control2: p(b.maxX - 1 - br.0 * (1 - k), b.maxY))
+        // Abajo hasta el pico; pico recto con la punta un poco hacia atrás.
+        path.addLine(to: p(tipX + b.width * 0.065, b.maxY))
+        path.addLine(to: p(tipX - b.width * 0.01, r.maxY))
+        path.addLine(to: p(tipX - b.width * 0.045, b.maxY))
+        // Abajo a la izquierda: el borde sube un poco antes de la esquina.
+        path.addQuadCurve(to: p(b.minX + bl.0, b.maxY - 2), control: p(b.minX + bl.0 * 2.5, b.maxY))
+        path.addCurve(to: p(b.minX + 1, b.maxY - bl.1), control1: p(b.minX + bl.0 * (1 - k), b.maxY - 3),
+                      control2: p(b.minX + 1, b.maxY - bl.1 * (1 - k)))
+        // Izquierda: apenas abombada.
+        path.addQuadCurve(to: p(b.minX + 2, b.minY + tl.1), control: p(b.minX - bulge, b.midY))
+        path.addCurve(to: p(b.minX + tl.0, b.minY + 1), control1: p(b.minX + 2, b.minY + tl.1 * (1 - k)),
+                      control2: p(b.minX + tl.0 * (1 - k), b.minY + 1))
+        path.closeSubpath()
+        return path
     }
 }
 
 /// Globo con el chat: la pregunta va a "Preguntar" y la respuesta se muestra con sus citas.
 struct ChatBubble: View {
     let controller: CompanionController
+    let tailOnRight: Bool
+    var tip: CGFloat = 0.8
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -213,10 +275,7 @@ struct ChatBubble: View {
                 .font(.caption)
             }
         }
-        .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.blue.opacity(0.5)))
-        .padding(.bottom, 10)
+        .comicBalloon(tailOnRight: tailOnRight, tip: tip)
         .environment(\.openURL, OpenURLAction { url in
             guard let id = Citations.sessionId(from: url) else { return .systemAction }
             let projectId = chat.conversation?.sessions.first { $0.id == id }?.projectId

@@ -273,4 +273,13 @@ struct CompanionSizeAndMenuTests {
         #expect(top.maxY <= screen.maxY)
         #expect(screen.contains(top))
     }
+
+    @Test func speechBalloonTailPointsAtTheCharacter() {
+        // 2B (275 de ancho bajo un globo de 300): la punta cae cerca del centro del globo.
+        #expect(abs(SpeechBalloonShape.tip(characterWidth: 275, bubbleWidth: 300) - 0.542) < 0.01)
+        // Personaje angosto: la punta se acerca al borde, sin pasarse.
+        #expect(SpeechBalloonShape.tip(characterWidth: 60, bubbleWidth: 300) == 0.8)
+        // Personaje más ancho que el globo: la punta se queda al centro.
+        #expect(SpeechBalloonShape.tip(characterWidth: 400, bubbleWidth: 300) == 0.5)
+    }
 }

@@ -162,6 +162,7 @@ final class CompanionController {
         // ASISTENT_COMPANION_DEMO=1 muestra un globo de ejemplo al arrancar (para probar el diseño).
         // ASISTENT_COMPANION_DEMO=menu abre el menú al arrancar.
         // ASISTENT_COMPANION_DEMO=animations abre la pantalla de animaciones al arrancar.
+        // ASISTENT_COMPANION_DEMO=chat abre el globo de Preguntar al arrancar.
         if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "menu" {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(2))
@@ -171,6 +172,11 @@ final class CompanionController {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 WindowRouter.shared.open("animations")
+            }
+        } else if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "chat" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                self?.openChat()
             }
         } else if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] != nil {
             model.say("¡Hola! Soy tu asistente. Haz clic en mí para grabar, preguntar o ajustar.", mood: .happy,
