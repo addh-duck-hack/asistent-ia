@@ -369,13 +369,21 @@ final class AppStore {
     /// Crea o edita una persona. Devuelve false (y deja el mensaje en errorMessage) si falla,
     /// por ejemplo si un alias ya es de otra persona.
     func savePerson(id: String?, _ body: PersonRequest) async -> Bool {
+        var saved: TeamMember?
         let ok = await run {
-            let saved = if let id { try await api.updatePerson(id: id, body) } else { try await api.createPerson(body) }
-            if saved.active != false { selectedPersonId = saved.id }
+            saved = if let id { try await api.updatePerson(id: id, body) } else { try await api.createPerson(body) }
         }
         if ok {
             await loadPeople()
-            if body.active == false { selectedPersonId = nil }
+            if body.active == false {
+                selectedPersonId = nil
+            } else if let saved, saved.active != false {
+                // Se selecciona después de que la lista ya tiene su fila (y su grupo, si el rol es nuevo):
+                // seleccionar una fila que todavía no existe dejaba la barra lateral con una fila
+                // dibujada encima de otra que no se podía ocultar.
+                await Task.yield()
+                selectedPersonId = saved.id
+            }
         }
         return ok
     }
