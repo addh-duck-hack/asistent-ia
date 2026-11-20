@@ -537,6 +537,14 @@ final class AppStore {
         }
     }
 
+    /// Abre la pestaña Pendientes de un proyecto y, si se da, selecciona un pendiente (recordatorios del personaje).
+    func showItems(projectId: String?, itemId: String?) async {
+        if let projectId { sidebar = .project(projectId) } else { showingAsk = false; selectedPersonId = nil }
+        tab = .items
+        await loadItems()
+        if let itemId { selectedItemId = itemId }
+    }
+
     /// Abre una sesión concreta (por ejemplo, recién grabada).
     func show(sessionId: String, projectId: String?) async {
         showingAsk = false

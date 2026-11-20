@@ -56,6 +56,47 @@ final class CompanionController {
     }
 
     nonisolated static var sleepMinutes: Int { UserDefaults.standard.integer(forKey: sleepMinutesKey) }
+
+    // Recordatorios de pendientes (Ajustes → Personaje → Recordatorios).
+    nonisolated static let remindersKey = "companionReminders"
+    nonisolated static let reminderMinutesKey = "companionReminderMinutes"
+    nonisolated static let reminderWorkHoursKey = "companionReminderWorkHours"
+    /// Recordatorios ya dichos hoy: primera línea la fecha, luego una clave por línea.
+    nonisolated static let remindersShownKey = "companionRemindersShown"
+    nonisolated static let reminderMinuteOptions = [30, 60, 120, 180]
+    /// Sin tocar teclado ni ratón este tiempo, se da por hecho que no hay nadie y no se recuerda nada.
+    nonisolated static let awayAfter: TimeInterval = 5 * 60
+
+    nonisolated static func reminderLabel(minutes: Int) -> String {
+        switch minutes {
+        case 60: "Cada hora, más o menos"
+        case let m where m % 60 == 0: "Cada \(m / 60) horas, más o menos"
+        default: "Cada \(minutes) minutos, más o menos"
+        }
+    }
+
+    nonisolated static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    /// Claves de los recordatorios dichos hoy (se olvidan al cambiar el día).
+    nonisolated static func shownReminders(now: Date = .now) -> Set<String> {
+        let lines = (UserDefaults.standard.string(forKey: remindersShownKey) ?? "").split(separator: "\n").map(String.init)
+        guard lines.first == dayKey(now) else { return [] }
+        return Set(lines.dropFirst())
+    }
+
+    nonisolated static func markReminderShown(_ key: String, now: Date = .now) {
+        let keys = shownReminders(now: now).union([key]).sorted()
+        UserDefaults.standard.set(([dayKey(now)] + keys).joined(separator: "\n"), forKey: remindersShownKey)
+    }
+
+    /// Segundos desde la última tecla, clic, movimiento o desplazamiento en la Mac.
+    nonisolated static func secondsSinceUserInput() -> TimeInterval {
+        let types: [CGEventType] = [.keyDown, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel]
+        return types.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
+    }
     nonisolated static let hideInterval: TimeInterval = 3600
     nonisolated static let analysisTimeout: TimeInterval = 15 * 60
 
@@ -127,7 +168,9 @@ final class CompanionController {
         self.store = store
         self.recorder = recorder
         model = CompanionModel()
-        UserDefaults.standard.register(defaults: [Self.followsCursorKey: true, Self.birthdaysKey: true, Self.scaleKey: 1.0, Self.sleepMinutesKey: 10])
+        UserDefaults.standard.register(defaults: [Self.followsCursorKey: true, Self.birthdaysKey: true, Self.scaleKey: 1.0, Self.sleepMinutesKey: 10,
+                                                  Self.remindersKey: true, Self.reminderMinutesKey: 60, Self.reminderWorkHoursKey: true])
+        model.onReminderDue = { [weak self] in self?.reminderDue() }
         model.onRestartMic = { [weak self] in self?.recorder.restartMic() }
         model.onRecover = { WindowRouter.shared.open("recorder") }
         model.onShowRecorder = { WindowRouter.shared.open("recorder") }
@@ -154,6 +197,7 @@ final class CompanionController {
         character = CharacterLibrary.selected()
         scale = CompanionGeometry.clampScale(UserDefaults.standard.double(forKey: Self.scaleKey))
         applySleepSetting()
+        applyReminderSetting()
         characterOrigin = savedOrigin() ?? CompanionGeometry.defaultOrigin(in: mainScreen(), character: characterSize)
         applyLayout(persist: true)
         updateVisibility()
@@ -163,6 +207,7 @@ final class CompanionController {
         // ASISTENT_COMPANION_DEMO=menu abre el menú al arrancar.
         // ASISTENT_COMPANION_DEMO=animations abre la pantalla de animaciones al arrancar.
         // ASISTENT_COMPANION_DEMO=chat abre el globo de Preguntar al arrancar.
+        // ASISTENT_COMPANION_DEMO=reminder dice un recordatorio de pendientes al arrancar.
         if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "menu" {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(2))
@@ -172,6 +217,11 @@ final class CompanionController {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 WindowRouter.shared.open("animations")
+            }
+        } else if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "reminder" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(4))
+                await self?.showReminder(test: true)
             }
         } else if ProcessInfo.processInfo.environment["ASISTENT_COMPANION_DEMO"] == "chat" {
             Task { @MainActor [weak self] in
@@ -199,6 +249,7 @@ final class CompanionController {
         let selectedId = UserDefaults.standard.string(forKey: CharacterLibrary.selectedKey) ?? CharacterPack.builtInId
         if selectedId != character.id { character = CharacterLibrary.selected() }
         applySleepSetting()
+        applyReminderSetting()
         let newScale = CompanionGeometry.clampScale(UserDefaults.standard.double(forKey: Self.scaleKey))
         if newScale != scale {
             let oldSize = characterSize
@@ -220,6 +271,62 @@ final class CompanionController {
         guard model.sleepAfter != after else { return }
         model.sleepAfter = after
         model.tick() // "Nunca" lo despierta en el momento; un tiempo menor lo duerme si ya pasó
+    }
+
+    private func applyReminderSetting() {
+        let minutes = UserDefaults.standard.integer(forKey: Self.reminderMinutesKey)
+        let every: TimeInterval? = UserDefaults.standard.bool(forKey: Self.remindersKey) && minutes > 0 ? TimeInterval(minutes) * 60 : nil
+        if model.reminderEvery != every { model.reminderEvery = every }
+    }
+
+    // MARK: Recordatorios de pendientes
+
+    @ObservationIgnored private var reminderInFlight = false
+
+    /// Toca un recordatorio: solo con el personaje a la vista, en horario (si se pidió) y con alguien en la Mac.
+    private func reminderDue() {
+        guard isVisible, !reminderInFlight else { return }
+        if UserDefaults.standard.bool(forKey: Self.reminderWorkHoursKey), !PendingReminders.isWorkTime(.now) { return }
+        guard Self.secondsSinceUserInput() < Self.awayAfter else { return }
+        Task { await showReminder() }
+    }
+
+    /// Pide los pendientes abiertos y dice uno de los recordatorios que todavía no dijo hoy.
+    /// `test` (Ajustes → "Probar ahora"): puede repetir y no cuenta como dicho. Devuelve false si no dijo nada.
+    @discardableResult
+    func showReminder(test: Bool = false) async -> Bool {
+        guard !reminderInFlight else { return false }
+        reminderInFlight = true
+        defer { reminderInFlight = false }
+        if test { show() }
+        guard let items = try? await api.actionItems(projectId: nil, statuses: [.open, .inProgress, .blocked]) else {
+            if test { model.say("No pude traer los pendientes del servidor.", kind: .error, mood: .sad, dismissAfter: 10) }
+            return false
+        }
+        let candidates = PendingReminders.candidates(items: items, people: store.people)
+        guard let reminder = PendingReminders.pick(from: candidates, avoiding: test ? [] : Self.shownReminders()) else { return false }
+        // Mientras llegaban los pendientes pudo aparecer otro globo o abrirse el chat.
+        guard test || (model.bubbles.isEmpty && !model.chatOpen) else { return false }
+        if !test { Self.markReminderShown(reminder.key) }
+        let action = reminder.target.map { target in
+            CompanionModel.Action(title: reminder.actionTitle ?? "Revisar") { [weak self] in self?.open(target) }
+        }
+        model.remind(reminder.text, action: action)
+        return true
+    }
+
+    private func open(_ target: PendingReminder.Target) {
+        model.dismissCurrent()
+        switch target {
+        case let .project(id):
+            Task { await store.showItems(projectId: id, itemId: nil) }
+        case let .item(id, projectId):
+            Task { await store.showItems(projectId: projectId, itemId: id) }
+        case let .person(id):
+            store.sidebar = .person(id)
+            store.personTab = .items
+        }
+        openMainWindow()
     }
 
     func setScale(_ value: Double) {

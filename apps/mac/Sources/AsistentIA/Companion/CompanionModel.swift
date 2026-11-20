@@ -76,6 +76,15 @@ final class CompanionModel {
     }
     private(set) var gesture: Gesture?
 
+    /// Cada cuánto, más o menos, toca un recordatorio de pendientes; nil = desactivados.
+    var reminderEvery: TimeInterval? {
+        didSet { if reminderEvery != oldValue { scheduleReminder() } }
+    }
+    /// Toca un recordatorio y el personaje está libre (sin grabar, sin globos, sin chat).
+    /// El controlador busca los pendientes y, si hay algo que decir, llama a `remind`.
+    var onReminderDue: (@MainActor () -> Void)?
+    private var nextReminder: Date = .distantFuture
+
     /// Acciones que requieren cosas que el modelo no tiene (las pone el controlador).
     var onRestartMic: (@MainActor () -> Void)?
     var onRecover: (@MainActor () -> Void)?
@@ -186,6 +195,23 @@ final class CompanionModel {
     static func pick(from options: [ClipSource], avoiding last: ClipSource?) -> ClipSource? {
         guard options.count > 1, let last else { return options.randomElement() }
         return options.filter { $0 != last }.randomElement() ?? options.first
+    }
+
+    /// Programa el siguiente recordatorio (o ninguno si están desactivados). `after` fija la espera.
+    func scheduleReminder(after delay: TimeInterval? = nil) {
+        guard let every = reminderEvery else { nextReminder = .distantFuture; return }
+        nextReminder = now().addingTimeInterval(delay ?? PendingReminders.nextDelay(every: every))
+    }
+
+    /// Dice un recordatorio con un gesto: si dormía despierta, si no hace un gesto al azar.
+    /// No cambia el ánimo (un cambio de estado cortaría el gesto).
+    func remind(_ text: String, action: Action?) {
+        if asleep {
+            wake()
+        } else if gesture == nil, !perform(.random) {
+            perform(.greet)
+        }
+        say(text, action: action, dismissAfter: 45)
     }
 
     private func scheduleRandom() {
@@ -341,6 +367,15 @@ final class CompanionModel {
         if now >= nextRandom {
             if pack.behavior.randomEnabled, quiet, !asleep, gesture == nil, previewMood == nil { perform(.random) }
             scheduleRandom()
+        }
+        // Recordatorios: solo con el personaje libre (dormido vale: el recordatorio lo despierta).
+        if now >= nextReminder {
+            if quiet, previewMood == nil {
+                scheduleReminder()
+                onReminderDue?()
+            } else {
+                scheduleReminder(after: 60) // ocupado: vuelve a intentar en un minuto
+            }
         }
     }
 

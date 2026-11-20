@@ -241,6 +241,7 @@ private struct CharacterSettings: View {
             Section("Avisos") {
                 Toggle("Avisar cumpleaños y aniversarios del equipo", isOn: $birthdays)
             }
+            ReminderSettingsSection()
             Section("Personajes propios") {
                 HStack {
                     Button("Importar carpeta…") { importCharacter() }
@@ -341,5 +342,43 @@ private struct ObsidianSettings: View {
         panel.message = "Elige la carpeta del vault donde se guardarán las notas"
         if !obsidianRoot.isEmpty { panel.directoryURL = URL(fileURLWithPath: obsidianRoot) }
         if panel.runModal() == .OK, let url = panel.url { obsidianRoot = url.path }
+    }
+}
+
+/// Ajustes → Personaje → Recordatorios de pendientes.
+private struct ReminderSettingsSection: View {
+    @AppStorage(CompanionController.remindersKey) private var enabled = true
+    @AppStorage(CompanionController.reminderMinutesKey) private var minutes = 60
+    @AppStorage(CompanionController.reminderWorkHoursKey) private var workHoursOnly = true
+    @State private var testing = false
+    @State private var testResult: String?
+
+    var body: some View {
+        Section("Recordatorios de pendientes") {
+            Toggle("Recordarme revisar pendientes durante el día", isOn: $enabled)
+            if enabled {
+                Picker("Frecuencia", selection: $minutes) {
+                    ForEach(CompanionController.reminderMinuteOptions, id: \.self) {
+                        Text(CompanionController.reminderLabel(minutes: $0)).tag($0)
+                    }
+                }
+                Toggle("Solo de lunes a viernes, de 9:00 a 19:00", isOn: $workHoursOnly)
+            }
+            Caption("En momentos al azar el personaje hace un gesto y te recuerda algo: un pendiente vencido o que vence hoy o mañana, uno bloqueado o sin responsable, cuántos pendientes tiene un proyecto, o que descanses si ya no queda nada para hoy. No repite el mismo en el día ni interrumpe mientras grabas o si no estás en la Mac.")
+            HStack {
+                Button("Probar ahora") {
+                    testing = true
+                    testResult = nil
+                    Task {
+                        let said = await CompanionController.shared?.showReminder(test: true) ?? false
+                        testResult = said ? nil : "No dije nada: revisa la conexión con el servidor."
+                        testing = false
+                    }
+                }
+                .disabled(testing || CompanionController.shared == nil)
+                if testing { ProgressView().controlSize(.small) }
+                if let testResult { Text(testResult).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
     }
 }
