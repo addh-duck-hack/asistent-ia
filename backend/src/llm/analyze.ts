@@ -48,6 +48,15 @@ export interface AnalyzeOutput {
 
 // Errores en los que reintentar no sirve (rechazo, petición inválida, llave
 // incorrecta). El worker los marca como fallidos sin reintentar.
+/** Texto del error de la API de Claude; para la llave inválida o vencida dice qué hacer. */
+export function describeApiError(status: number | undefined, message: string): string {
+  const raw = `Claude ${status}: ${message}`;
+  if (status === 401) {
+    return `La llave de Anthropic (ANTHROPIC_API_KEY en backend/.env) no es válida o venció. Cámbiala, reinicia el worker y reenvía la sesión. (${raw})`;
+  }
+  return raw;
+}
+
 export class NonRetryableAnalysisError extends Error {
   override name = "NonRetryableAnalysisError";
 }
@@ -173,7 +182,7 @@ export async function analyzeTranscript(
       err instanceof Anthropic.PermissionDeniedError ||
       err instanceof Anthropic.NotFoundError
     ) {
-      throw new NonRetryableAnalysisError(`Claude ${err.status}: ${err.message}`);
+      throw new NonRetryableAnalysisError(describeApiError(err.status, err.message));
     }
     throw err;
   }

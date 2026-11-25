@@ -241,4 +241,55 @@ describe("runAnalyzeSession", () => {
     expect((await post(`/api/sessions/${sessionId}/reanalyze`, { depth: "turbo" })).status).toBe(400);
     expect(enqueueAnalysis).toHaveBeenCalledWith(sessionId);
   });
+
+  it("guarda cada fallo en el registro y lo marca resuelto al analizar bien", async () => {
+    const { sessionId } = await createSession();
+    const fail = vi.fn(async () => {
+      throw new NonRetryable("Claude 401: invalid x-api-key");
+    });
+    await expect(runAnalyzeSession(sessionId, fail)).rejects.toThrow();
+    await expect(runAnalyzeSession(sessionId, fail)).rejects.toThrow();
+
+    let logs = await fetch(`${base}/api/logs?unresolved=true`, { headers }).then((r) => r.json());
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toMatchObject({ sessionId, title: "Daily", message: "Claude 401: invalid x-api-key", retryable: false });
+
+    const failed = await fetch(`${base}/api/sessions/failed`, { headers }).then((r) => r.json());
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ _id: sessionId, status: "failed", projectName: "Portal" });
+
+    await runAnalyzeSession(sessionId, fakeAnalyzer());
+    expect(await fetch(`${base}/api/logs?unresolved=true`, { headers }).then((r) => r.json())).toHaveLength(0);
+    logs = await fetch(`${base}/api/logs`, { headers }).then((r) => r.json());
+    expect(logs).toHaveLength(2);
+    expect(logs[0].resolvedAt).toBeTruthy();
+    expect(await fetch(`${base}/api/sessions/failed`, { headers }).then((r) => r.json())).toHaveLength(0);
+
+    const del = await fetch(`${base}/api/logs?resolved=true`, { method: "DELETE", headers }).then((r) => r.json());
+    expect(del).toEqual({ deleted: 2 });
+  });
+
+  it("reenvía todas las sesiones fallidas", async () => {
+    const a = await createSession();
+    const b = await post("/api/sessions", {
+      projectId: String(a.project._id),
+      type: "pasted",
+      title: "Seguimiento",
+      date: "2026-10-23",
+      transcript: { content: "Carlos ya terminó los tests." },
+    }).then(async (r) => ({ sessionId: (await r.json())._id as string }));
+    const fail = vi.fn(async () => {
+      throw new NonRetryable("Claude 401");
+    });
+    await expect(runAnalyzeSession(a.sessionId, fail)).rejects.toThrow();
+    await expect(runAnalyzeSession(b.sessionId, fail)).rejects.toThrow();
+    enqueueAnalysis.mockClear();
+
+    const r = await post("/api/sessions/retry-failed", {});
+    expect(r.status).toBe(202);
+    expect(await r.json()).toEqual({ retried: 2 });
+    expect(enqueueAnalysis).toHaveBeenCalledTimes(2);
+    const sessions = await models.SessionModel.find().lean();
+    expect(sessions.every((s) => s.status === "pending" && !s.error)).toBe(true);
+  });
 });

@@ -97,6 +97,28 @@ struct APIClient: Sendable {
         return try await request("/api/sessions/\(sessionId)/reanalyze", method: "POST", body: Body(depth: depth), as: Session.self)
     }
 
+    // MARK: Registro de errores
+
+    func failedSessions() async throws -> [Session] {
+        try await request("/api/sessions/failed", as: [Session].self)
+    }
+
+    /// Vuelve a encolar todas las sesiones fallidas; devuelve cuántas.
+    func retryFailedSessions() async throws -> Int {
+        struct Body: Encodable {}
+        struct Result: Decodable { let retried: Int }
+        return try await request("/api/sessions/retry-failed", method: "POST", body: Body(), as: Result.self).retried
+    }
+
+    func errorLogs(limit: Int = 300) async throws -> [ErrorLogEntry] {
+        try await request("/api/logs?limit=\(limit)", as: [ErrorLogEntry].self)
+    }
+
+    /// Borra del servidor los errores ya resueltos (o todos).
+    func clearErrorLogs(onlyResolved: Bool) async throws {
+        try await delete(onlyResolved ? "/api/logs?resolved=true" : "/api/logs")
+    }
+
     /// Mueve la sesión a otro proyecto; el backend la re-analiza con ese contexto.
     func moveSession(id: String, to projectId: String) async throws {
         struct Body: Encodable { let projectId: String }

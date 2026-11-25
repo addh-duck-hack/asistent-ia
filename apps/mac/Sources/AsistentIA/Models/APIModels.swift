@@ -103,9 +103,11 @@ struct Session: Codable, Identifiable, Hashable {
     /// Resumen ejecutivo y costo del último análisis; solo en GET /projects/:id/sessions.
     let summary: String?
     let costUsd: Double?
+    /// Nombre del proyecto; solo en GET /sessions/failed (Registro).
+    var projectName: String?
 
     enum CodingKeys: String, CodingKey {
-        case id = "_id", projectId, type, title, date, participants, depth, status, error, summary, costUsd
+        case id = "_id", projectId, type, title, date, participants, depth, status, error, summary, costUsd, projectName
     }
 }
 

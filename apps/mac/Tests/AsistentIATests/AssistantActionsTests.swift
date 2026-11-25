@@ -12,6 +12,16 @@ struct AssistantActionsTests {
         #expect(items.first { $0.id == "record" }?.enabled == true)
     }
 
+    @Test func failedSessionsAddAnEntryThatOpensTheLog() throws {
+        let store = AppStore()
+        let json = #"{"_id":"s1","projectId":"p1","type":"meeting","title":"Reunión","date":"2026-11-24T18:00:00.000Z","status":"failed","error":"Claude 401","projectName":"Portal"}"#
+        store.failedSessions = [try APIClient.decoder.decode(Session.self, from: Data(json.utf8))]
+        let items = AssistantActions.items(store: store, recorder: RecordingService())
+        #expect(items.map(\.id).prefix(2) == ["open", "failed"])
+        #expect(items.first { $0.id == "failed" }?.title == "1 sesión con error…")
+        #expect(store.failedSessions.first?.projectName == "Portal")
+    }
+
     @Test func askUsesTheCompanionCallbackWhenGiven() {
         var asked = false
         let items = AssistantActions.items(store: AppStore(), recorder: RecordingService(), ask: { asked = true })

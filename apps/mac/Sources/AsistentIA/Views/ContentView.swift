@@ -28,6 +28,10 @@ struct ContentView: View {
             List(selection: $store.sidebar) {
                 Label("Preguntar", systemImage: "bubble.left.and.text.bubble.right")
                     .tag(AppStore.SidebarItem.ask)
+                Label("Registro", systemImage: store.failedSessions.isEmpty ? "list.bullet.rectangle" : "exclamationmark.triangle")
+                    .badge(store.failedSessions.count)
+                    .help("Errores guardados y sesiones que no se pudieron procesar")
+                    .tag(AppStore.SidebarItem.logs)
                 Section("Proyectos") {
                     ForEach(store.projects) { project in
                         Label(project.name, systemImage: "folder")
@@ -78,6 +82,9 @@ struct ContentView: View {
             if store.showingAsk {
                 ConversationListView()
                     .navigationSplitViewColumnWidth(min: 260, ideal: 300)
+            } else if store.showingLogs {
+                FailedSessionsListView()
+                    .navigationSplitViewColumnWidth(min: 280, ideal: 340)
             } else if store.selectedPersonId != nil {
                 PersonContentView()
                     .navigationSplitViewColumnWidth(min: 300, ideal: 360)
@@ -112,6 +119,8 @@ struct ContentView: View {
         } detail: {
             if store.showingAsk {
                 ConversationView()
+            } else if store.showingLogs {
+                ErrorLogView()
             } else if store.selectedPersonId != nil {
                 PersonDetailView()
             } else {

@@ -1,6 +1,7 @@
 import {
   ActionItemModel,
   AnalysisModel,
+  ErrorLogModel,
   PersonModel,
   ProjectModel,
   SessionModel,
@@ -8,7 +9,7 @@ import {
 } from "../models/index.js";
 import type { Types } from "mongoose";
 import type { Analysis } from "@asistent-ia/schema";
-import { analyzeTranscript, type AnalyzeInput, type AnalyzeOutput } from "../llm/analyze.js";
+import { NonRetryableAnalysisError, analyzeTranscript, type AnalyzeInput, type AnalyzeOutput } from "../llm/analyze.js";
 import { buildOwnerResolver } from "../utils/people.js";
 
 type Analyzer = (input: AnalyzeInput) => Promise<AnalyzeOutput>;
@@ -157,6 +158,7 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
 
     session.status = "done";
     await session.save();
+    await ErrorLogModel.updateMany({ sessionId: session._id, resolvedAt: null }, { $set: { resolvedAt: new Date() } });
     console.log(
       `[analyze] ${sessionId} listo (${output.depth}, ${output.model}/${output.effort}) — in ${output.usage.inputTokens}, out ${output.usage.outputTokens}, cache ${output.usage.cacheReadInputTokens}, ≈ $${output.usage.costUsd ?? "?"}`,
     );
@@ -164,6 +166,13 @@ export async function runAnalyzeSession(sessionId: string, analyze: Analyzer = a
     session.status = "failed";
     session.error = err instanceof Error ? err.message : String(err);
     await session.save();
+    await ErrorLogModel.create({
+      sessionId: session._id,
+      projectId: session.projectId,
+      title: session.title,
+      message: session.error,
+      retryable: !(err instanceof NonRetryableAnalysisError),
+    }).catch((logErr) => console.error("[analyze] no se pudo guardar el log", logErr));
     throw err; // Agenda decide si reintenta (ver worker.ts)
   }
 }

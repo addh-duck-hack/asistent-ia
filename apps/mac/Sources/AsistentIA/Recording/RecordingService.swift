@@ -152,6 +152,7 @@ final class RecordingService {
             startMeters()
         } catch {
             phase = .failed("No se pudo iniciar la grabación: \(error.localizedDescription)")
+            LocalErrorLog.shared.append(title: meta.title, message: "No se pudo iniciar la grabación: \(error.localizedDescription)")
         }
     }
 
@@ -345,6 +346,7 @@ final class RecordingService {
             if Task.isCancelled || error is CancellationError { return nil }
             // El audio se conserva para poder reintentar.
             phase = .failed("\(error.localizedDescription) El audio quedó en \(folder.path).")
+            LocalErrorLog.shared.append(title: meta.title, message: "No se pudo procesar la grabación: \(error.localizedDescription) El audio quedó en \(folder.path).")
             return nil
         }
     }

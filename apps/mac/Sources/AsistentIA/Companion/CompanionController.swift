@@ -650,6 +650,13 @@ final class CompanionController {
         openMainWindow()
     }
 
+    /// Abre Registro: errores guardados y sesiones para reenviar.
+    func showLogs() {
+        store.sidebar = .logs
+        Task { await store.loadLogs() }
+        openMainWindow()
+    }
+
     func showSession(id: String, projectId: String?) {
         Task { await store.show(sessionId: id, projectId: projectId) }
         openMainWindow()
@@ -791,8 +798,11 @@ final class CompanionController {
                     }
                     self.model.say("El análisis de «\(session.title)» está listo.", mood: .happy, action: see, dismissAfter: 90)
                 } else {
+                    // Queda en Registro para reenviarla (Fase 10).
+                    let log = CompanionModel.Action(title: "Ver registro") { [weak self] in self?.showLogs() }
                     self.model.say("El análisis de «\(session.title)» falló\(session.error.map { ": \($0)" } ?? ".")",
-                                   kind: .error, mood: .sad, dismissAfter: 30)
+                                   kind: .error, mood: .sad, action: log, dismissAfter: 30)
+                    await self.store.loadFailedSessions()
                 }
                 return
             }

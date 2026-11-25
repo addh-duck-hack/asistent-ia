@@ -86,6 +86,25 @@ sessionsRouter.post("/", async (req, res) => {
   res.status(201).json(session);
 });
 
+// Sesiones cuyo análisis falló, de todos los proyectos (pantalla Registro de la app).
+sessionsRouter.get("/failed", async (_req, res) => {
+  const sessions = await SessionModel.find({ status: "failed" }).sort({ updatedAt: -1 }).limit(200).lean();
+  const projects = await ProjectModel.find({ _id: { $in: [...new Set(sessions.map((s) => String(s.projectId)))] } })
+    .select({ name: 1 })
+    .lean();
+  const names = new Map(projects.map((p) => [String(p._id), p.name]));
+  res.json(sessions.map((s) => ({ ...s, projectName: names.get(String(s.projectId)) ?? null })));
+});
+
+// Vuelve a encolar todas las sesiones fallidas (por ejemplo, tras cambiar la llave de Anthropic).
+sessionsRouter.post("/retry-failed", async (_req, res) => {
+  const failed = await SessionModel.find({ status: "failed" }).select({ _id: 1 }).lean();
+  const ids = failed.map((s) => s._id);
+  await SessionModel.updateMany({ _id: { $in: ids }, status: "failed" }, { status: "pending", $unset: { error: 1 } });
+  for (const id of ids) await enqueueAnalysis(String(id));
+  res.status(202).json({ retried: ids.length });
+});
+
 sessionsRouter.get("/:id", async (req, res) => {
   const session = await SessionModel.findById(req.params.id).lean();
   if (!session) {

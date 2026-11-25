@@ -65,11 +65,14 @@ final class ClipCharacter: CharacterActor {
                     log.error("\(clip.file) no tiene animaciones")
                 }
             } catch {
+                // Un cambio de estado o un gesto cancela la tarea que estaba cargando: no es un archivo dañado,
+                // se vuelve a intentar la próxima vez que se pida (si no, el clip quedaba vetado y el personaje congelado).
+                if error is CancellationError || Task.isCancelled { return nil }
                 log.error("No se pudo cargar \(clip.file): \(error.localizedDescription)")
             }
         }
         guard var animation = raw[clip.file] else {
-            failed.insert(clip.file)
+            if !Task.isCancelled { failed.insert(clip.file) }
             return nil
         }
         if let start = clip.start, let end = clip.end, end > start,

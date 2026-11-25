@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAnalysisRequest, formatTranscript, type AnalyzeInput } from "./analyze.js";
+import { buildAnalysisRequest, describeApiError, formatTranscript, type AnalyzeInput } from "./analyze.js";
 import { ANALYSIS_SYSTEM_PROMPT } from "./prompts/analysis.js";
 
 const input: AnalyzeInput = {
@@ -89,5 +89,17 @@ describe("formatTranscript", () => {
 
   it("usa el texto plano si no hay segmentos", () => {
     expect(formatTranscript({ text: "hola", segments: [] })).toBe("hola");
+  });
+});
+
+describe("describeApiError", () => {
+  it("explica la llave inválida o vencida y conserva el texto original", () => {
+    const text = describeApiError(401, '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}');
+    expect(text).toMatch(/^La llave de Anthropic \(ANTHROPIC_API_KEY/);
+    expect(text).toContain("invalid x-api-key");
+  });
+
+  it("deja igual los demás errores", () => {
+    expect(describeApiError(400, "bad request")).toBe("Claude 400: bad request");
   });
 });

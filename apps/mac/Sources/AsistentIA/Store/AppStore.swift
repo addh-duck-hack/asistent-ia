@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -30,6 +32,7 @@ final class AppStore {
     /// Elemento elegido en la barra lateral: un proyecto o una persona.
     enum SidebarItem: Hashable {
         case ask
+        case logs
         case project(String)
         case person(String)
     }
@@ -74,6 +77,7 @@ final class AppStore {
     var sidebar: SidebarItem? {
         get {
             if showingAsk { return .ask }
+            if showingLogs { return .logs }
             if let selectedPersonId { return .person(selectedPersonId) }
             return selectedProjectId.map { .project($0) }
         }
@@ -81,13 +85,20 @@ final class AppStore {
             switch newValue {
             case .ask:
                 showingAsk = true
+                showingLogs = false
+                selectedPersonId = nil
+            case .logs:
+                showingLogs = true
+                showingAsk = false
                 selectedPersonId = nil
             case let .project(id):
                 showingAsk = false
+                showingLogs = false
                 selectedPersonId = nil
                 selectedProjectId = id
             case let .person(id):
                 showingAsk = false
+                showingLogs = false
                 selectedPersonId = id
             case nil:
                 break
@@ -103,6 +114,95 @@ final class AppStore {
     }
     var selectedDigest: WeeklyDigest? { digests.first { $0.id == selectedDigestId } }
     var errorMessage: String?
+
+    // MARK: Registro de errores
+
+    /// `-showLogs YES` al arrancar abre Registro (para revisar la pantalla sin clics).
+    var showingLogs = UserDefaults.standard.bool(forKey: "showLogs")
+    /// Sesiones cuyo análisis falló, de todos los proyectos.
+    var failedSessions: [Session] = []
+    var errorLogs: [ErrorLogEntry] = []
+    var localErrors: [LocalErrorEntry] = []
+    /// Sesión elegida en Registro: el historial muestra solo sus errores.
+    var selectedFailedSessionId: String?
+    var showResolvedLogs = false
+    var retryingFailed = false
+
+    /// Errores del servidor y de la Mac juntos, del más reciente al más antiguo.
+    var logLines: [LogLine] {
+        var lines = errorLogs.map(LogLine.init) + (selectedFailedSessionId == nil ? localErrors.map(LogLine.init) : [])
+        if let id = selectedFailedSessionId { lines = lines.filter { $0.sessionId == id } }
+        if !showResolvedLogs { lines = lines.filter { !$0.resolved } }
+        return lines.sorted { $0.date > $1.date }
+    }
+
+    /// Por qué no se pudo leer el registro del servidor (se muestra en la lista, no en el aviso rojo).
+    var logsLoadError: String?
+
+    func loadLogs() async {
+        localErrors = LocalErrorLog.shared.read()
+        do {
+            async let failed = api.failedSessions()
+            async let logs = api.errorLogs()
+            (failedSessions, errorLogs) = try await (failed, logs)
+            logsLoadError = nil
+        } catch let APIError.http(code, _) where code == 400 || code == 404 {
+            logsLoadError = "El servidor todavía no tiene el registro: hay que desplegar la versión nueva del backend."
+        } catch {
+            logsLoadError = "No se pudo consultar el servidor: \(error.localizedDescription)"
+        }
+        if let id = selectedFailedSessionId, !failedSessions.contains(where: { $0.id == id }) { selectedFailedSessionId = nil }
+    }
+
+    /// Solo el contador de la barra lateral (al abrir la app y tras un análisis).
+    func loadFailedSessions() async {
+        if let failed = try? await api.failedSessions() { failedSessions = failed }
+    }
+
+    func retry(failed session: Session) async {
+        let ok = await run { _ = try await api.reanalyze(sessionId: session.id, depth: nil) }
+        guard ok else { return }
+        notify("Se reenvió «\(session.title)» a analizar")
+        await loadLogs()
+    }
+
+    func retryAllFailed() async {
+        retryingFailed = true
+        defer { retryingFailed = false }
+        var count = 0
+        let ok = await run { count = try await api.retryFailedSessions() }
+        guard ok else { return }
+        notify(count == 1 ? "Se reenvió 1 sesión a analizar" : "Se reenviaron \(count) sesiones a analizar")
+        await loadLogs()
+    }
+
+    /// Borra los errores ya resueltos del servidor, o todo el historial (servidor y Mac).
+    func clearLogs(onlyResolved: Bool) async {
+        let ok = await run { try await api.clearErrorLogs(onlyResolved: onlyResolved) }
+        guard ok else { return }
+        if !onlyResolved { LocalErrorLog.shared.clear() }
+        await loadLogs()
+    }
+
+    func copyLogs() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(LogLine.plainText(logLines), forType: .string)
+        notify("Registro copiado al portapapeles")
+    }
+
+    /// Guarda el registro en un .txt que elige el usuario.
+    func saveLogs() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "asistent-ia-errores-\(Date.now.formatted(.iso8601.year().month().day())).txt"
+        panel.allowedContentTypes = [.plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try LogLine.plainText(logLines).write(to: url, atomically: true, encoding: .utf8)
+            notify("Registro guardado", file: nil)
+        } catch {
+            errorMessage = "No se pudo guardar el registro: \(error.localizedDescription)"
+        }
+    }
 
     // MARK: Preguntar
 
@@ -315,6 +415,8 @@ final class AppStore {
             guard await run({ try await api.delete("/api/sessions/\(x.id)") }) else { return }
             deleteLocalData(x.id)
             if selectedSessionId == x.id { selectedSessionId = nil; detail = nil }
+            failedSessions.removeAll { $0.id == x.id }
+            if selectedFailedSessionId == x.id { selectedFailedSessionId = nil }
             await loadSessions()
             await loadPeople()
         case let .item(x):
@@ -360,6 +462,7 @@ final class AppStore {
             if selectedProjectId == nil { selectedProjectId = projects.first?.id }
         }
         await loadPeople()
+        await loadFailedSessions()
     }
 
     func loadPeople() async {
@@ -539,7 +642,7 @@ final class AppStore {
 
     /// Abre la pestaña Pendientes de un proyecto y, si se da, selecciona un pendiente (recordatorios del personaje).
     func showItems(projectId: String?, itemId: String?) async {
-        if let projectId { sidebar = .project(projectId) } else { showingAsk = false; selectedPersonId = nil }
+        if let projectId { sidebar = .project(projectId) } else { showingAsk = false; showingLogs = false; selectedPersonId = nil }
         tab = .items
         await loadItems()
         if let itemId { selectedItemId = itemId }
@@ -548,6 +651,7 @@ final class AppStore {
     /// Abre una sesión concreta (por ejemplo, recién grabada).
     func show(sessionId: String, projectId: String?) async {
         showingAsk = false
+        showingLogs = false
         selectedPersonId = nil
         if let projectId, projectId != selectedProjectId {
             selectedProjectId = projectId

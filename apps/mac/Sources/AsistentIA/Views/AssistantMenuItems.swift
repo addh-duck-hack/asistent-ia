@@ -81,6 +81,14 @@ enum AssistantActions {
         let companionShowsRecording = CompanionController.shared?.isVisible ?? false
         var items: [AssistantAction] = []
         items.append(.init(id: "open", title: "Abrir Asistent IA", systemImage: "macwindow") { router.open("main") })
+        if !store.failedSessions.isEmpty {
+            let n = store.failedSessions.count
+            items.append(.init(id: "failed", title: n == 1 ? "1 sesión con error…" : "\(n) sesiones con error…",
+                               systemImage: "exclamationmark.triangle") {
+                store.sidebar = .logs
+                router.open("main")
+            })
+        }
         if !recorder.interrupted.isEmpty, !recorder.phase.isBusy {
             items.append(.init(id: "recover", title: "Recuperar grabación interrumpida…", systemImage: "arrow.counterclockwise") { router.open("recorder") })
         }
